@@ -6,9 +6,8 @@ import { ExamsResultsTab } from "./examinations/ExamsResultsTab";
 import { ExamsReportCardTab } from "./examinations/ExamsReportCardTab";
 import { ExamsDateSheetTab } from "./examinations/ExamsDateSheetTab";
 import { ExamsMasterDateSheetTab } from "./examinations/ExamsMasterDateSheetTab";
-import { ExamsMeritTab } from "./examinations/ExamsMeritTab";
 import {
-  LayoutDashboard, CalendarDays, BarChart3, FileText, Settings2, CalendarRange, Trophy, LayoutGrid,
+  LayoutDashboard, CalendarDays, BarChart3, FileText, Settings2, CalendarRange, LayoutGrid,
 } from "lucide-react";
 
 const TABS = [
@@ -18,7 +17,6 @@ const TABS = [
   { key: "report-cards",    label: "Report Cards",      icon: FileText        },
   { key: "master-datesheet",label: "Master Datesheet",  icon: LayoutGrid      },
   { key: "date-sheet",      label: "Date Sheet",        icon: CalendarRange   },
-  { key: "merit",           label: "Merit List",        icon: Trophy          },
   { key: "setup",           label: "Setup",             icon: Settings2       },
 ] as const;
 
@@ -31,7 +29,6 @@ const TAB_SUBTITLE: Record<TabKey, string> = {
   results:             "Select an exam and enter marks for each student in the class.",
   "report-cards":      "View class results, rankings and print individual report cards.",
   "date-sheet":        "Printable date sheet showing all exams grouped by date.",
-  merit:               "Class/Program merit list — students ranked by total percentage for a session.",
   setup:               "Configure exam types, grading scales and grade bands.",
 };
 
@@ -53,7 +50,6 @@ export default function Examinations() {
       {tab === "results"          && <ExamsResultsTab />}
       {tab === "report-cards"     && <ExamsReportCardTab />}
       {tab === "date-sheet"       && <ExamsDateSheetTab />}
-      {tab === "merit"            && <ExamsMeritTab />}
       {tab === "setup"            && <ExamsSetupTab />}
     </div>
   );

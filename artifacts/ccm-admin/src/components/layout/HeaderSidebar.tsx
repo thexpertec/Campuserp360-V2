@@ -100,7 +100,6 @@ export const NAV: NavItem[] = [
       { name: "Report Cards",     tab: "report-cards"     },
       { name: "Master Datesheet", tab: "master-datesheet" },
       { name: "Date Sheet",       tab: "date-sheet"       },
-      { name: "Merit List",       tab: "merit"            },
       { name: "Setup",            tab: "setup"            },
     ],
   },
