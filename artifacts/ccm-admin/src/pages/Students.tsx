@@ -8,7 +8,6 @@ import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import {
   useListAdminStudents,
   getListAdminStudentsQueryKey,
-  useCreateAdminStudent,
   useUpdateAdminStudent,
   useDeleteAdminStudent,
   useGetAdminStudent,
@@ -240,34 +239,18 @@ function mkEnrollRow(): EnrollRow {
   return { _rowId: crypto.randomUUID(), applicationId: "", applicantId: "", fullName: "", guardian: null, phone: "", dateOfBirth: "", bloodGroup: "" };
 }
 
-// ─── Applicant ID helpers ──────────────────────────────────────────────────────────
-
-const GR_YEAR = new Date().getFullYear();
-
-function grFromSeq(seq: number): string {
-  return `CCM-${GR_YEAR}-${String(seq).padStart(3, "0")}`;
-}
-
-function seqFromGr(gr: string): number | null {
-  const parts = gr.trim().split("-");
-  if (parts.length !== 3) return null;
-  const n = parseInt(parts[2], 10);
-  return Number.isFinite(n) ? n : null;
-}
-
-// Returns the next CCM-YEAR-NNN that is not already used by another grid row,
-// starting from the DB-derived base sequence. This keeps every unsaved row's
-// Applicant ID unique even before any student is persisted.
-function nextUniqueGr(rows: EnrollRow[], baseSeq: number, excludeRowId?: string): string {
-  const used = new Set<number>();
-  for (const r of rows) {
-    if (excludeRowId && r._rowId === excludeRowId) continue;
-    const s = seqFromGr(r.applicantId);
-    if (s != null) used.add(s);
+async function fetchRegisterIds(count: number): Promise<string[]> {
+  const token = getToken();
+  const res = await fetch(`/api/admin/students/next-gr?count=${count}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const json = await res.json() as { applicantIds?: string[]; nextApplicantId?: string; error?: string };
+  if (!res.ok) throw new Error(json.error ?? "Could not generate Register ID");
+  if (Array.isArray(json.applicantIds) && json.applicantIds.length > 0) {
+    return json.applicantIds.slice(0, count);
   }
-  let seq = Math.max(baseSeq, 1);
-  while (used.has(seq)) seq++;
-  return grFromSeq(seq);
+  if (json.nextApplicantId) return [json.nextApplicantId];
+  throw new Error("Could not generate Register ID");
 }
 
 // ─── Phone validation (Pakistan) ────────────────────────────────────────────────
@@ -377,7 +360,8 @@ export function StudentFormDialog({
   open, onOpenChange, editing, onSaved, classes, sections, houses, years,
 }: {
   open: boolean; onOpenChange: (v: boolean) => void;
-  editing: AdminStudentSummary | null; onSaved: () => void;
+  editing: AdminStudentSummary | null;
+  onSaved: (created?: AdminStudentSummary[]) => void;
   classes: any[]; sections: any[]; houses: any[]; years: any[];
 }) {
   const { toast } = useToast();
@@ -441,7 +425,6 @@ export function StudentFormDialog({
   }
 
   // ── Bulk enroll mode (spreadsheet) ──────────────────────────────────────────
-  const createMutation = useCreateAdminStudent();
   const [classCode, setClassCode]   = useState("");
   const [sectionId, setSectionId]   = useState("");
   const [houseId, setHouseId]       = useState("");
@@ -456,14 +439,10 @@ export function StudentFormDialog({
   const [status, setStatus]         = useState("active");
   const [enrollRows, setEnrollRows] = useState<EnrollRow[]>([mkEnrollRow()]);
   const [busy, setBusy]             = useState(false);
-  const [grBaseSeq, setGrBaseSeq]   = useState(1);
-  const [grBaseLoaded, setGrBaseLoaded] = useState(false);
   const gridRef                     = useRef<HTMLDivElement>(null);
 
-  // Holds the latest values so the grid's row callbacks can stay referentially
-  // stable (memoized) — without this every keystroke would re-render every row.
-  const stateRef = useRef({ enrollRows, grBaseSeq, grBaseLoaded });
-  stateRef.current = { enrollRows, grBaseSeq, grBaseLoaded };
+  const stateRef = useRef({ enrollRows });
+  stateRef.current = { enrollRows };
 
   // Mandatory Academic Setup: enrollment is blocked unless at least one of each
   // configuration exists. The dropdown option lists are the source of truth.
@@ -476,56 +455,45 @@ export function StudentFormDialog({
     return m;
   }, [years, classes, sections, houses]);
 
-  // Fetch the next available GR sequence from the server whenever the bulk
-  // dialog opens, so locally-generated Applicant IDs continue from the real max.
+  // Fetch server-verified Register IDs whenever the bulk dialog opens.
   useEffect(() => {
-    if (!open) { setGrBaseLoaded(false); return; }
-    if (editing) return;
+    if (!open || editing) return;
     let cancelled = false;
     (async () => {
       try {
-        const token = getToken();
-        const res = await fetch("/api/admin/students/next-gr", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        const json = await res.json();
-        if (!cancelled && res.ok && typeof json?.nextSequence === "number") {
-          setGrBaseSeq(json.nextSequence);
-          setGrBaseLoaded(true);
-        }
-      } catch { /* base stays at default; manual Gen still works */ }
-    })();
-    return () => { cancelled = true; };
-  }, [open, editing]);
-
-  // Once the base sequence is known, auto-assign a unique Applicant ID to any row
-  // that doesn't have one yet (covers the initial row).
-  useEffect(() => {
-    if (!open || editing || !grBaseLoaded) return;
-    setEnrollRows(prev => {
-      if (!prev.some(r => !r.applicantId.trim())) return prev;
-      const out = [...prev];
-      for (let i = 0; i < out.length; i++) {
-        if (!out[i].applicantId.trim()) {
-          out[i] = { ...out[i], applicantId: nextUniqueGr(out, grBaseSeq, out[i]._rowId) };
+        const ids = await fetchRegisterIds(1);
+        if (cancelled) return;
+        setEnrollRows([{ ...mkEnrollRow(), applicantId: ids[0] ?? "" }]);
+      } catch (err) {
+        if (!cancelled) {
+          toast({
+            title: "Could not load Register ID",
+            description: err instanceof Error ? err.message : "Please try again.",
+            variant: "destructive",
+          });
         }
       }
-      return out;
-    });
-  }, [grBaseLoaded, grBaseSeq, open, editing]);
+    })();
+    return () => { cancelled = true; };
+  }, [open, editing, toast]);
   const updE = useCallback((rowId: string, k: keyof EnrollRow, v: string) => {
     setEnrollRows(p => p.map(r => r._rowId === rowId ? { ...r, [k]: v } : r));
   }, []);
   const updGuardian = useCallback((rowId: string, g: GuardianOption | null) => {
     setEnrollRows(p => p.map(r => r._rowId === rowId ? { ...r, guardian: g } : r));
   }, []);
-  const addEnrollRow = useCallback(() => {
-    setEnrollRows(p => {
-      const row = mkEnrollRow();
-      if (stateRef.current.grBaseLoaded) row.applicantId = nextUniqueGr(p, stateRef.current.grBaseSeq);
-      return [...p, row];
-    });
-  }, []);
+  const addEnrollRow = useCallback(async () => {
+    try {
+      const ids = await fetchRegisterIds(1);
+      setEnrollRows(p => [...p, { ...mkEnrollRow(), applicantId: ids[0] ?? "" }]);
+    } catch (err) {
+      toast({
+        title: "Could not generate Register ID",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
   const removeEnrollRow = useCallback((rowId: string) => {
     setEnrollRows(p => p.length > 1 ? p.filter(r => r._rowId !== rowId) : p);
   }, []);
@@ -577,24 +545,46 @@ export function StudentFormDialog({
 
     setBusy(true);
     try {
-      for (const row of valid) {
-        await createMutation.mutateAsync({ data: {
-          applicantId: row.applicantId.trim(), fullName: row.fullName.trim(),
-          fatherName: row.guardian?.name?.trim() || undefined,
-          guardianId: row.guardian?.id || undefined,
-          mobile: row.phone.trim() || undefined,
-          dateOfBirth: row.dateOfBirth || undefined,
-          bloodGroup: row.bloodGroup || undefined,
-          applicationId: row.applicationId || undefined,
-          classCode, sectionId: sectionId || undefined,
-          houseId: houseId || undefined, academicYearId: yearId || undefined,
-          enrollmentDate: enrollDate || undefined, status,
-        } as any});
-      }
-      toast({ title: `${valid.length} student${valid.length > 1 ? "s" : ""} enrolled` });
-      onSaved(); onOpenChange(false);
-    } catch (err: any) {
-      const msg = err?.response?.data?.error || err?.message || "Could not enroll students";
+      const token = getToken();
+      const res = await fetch("/api/admin/students/bulk-enroll", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          classCode,
+          sectionId: sectionId || undefined,
+          houseId: houseId || undefined,
+          academicYearId: yearId || undefined,
+          enrollmentDate: enrollDate || undefined,
+          status,
+          students: valid.map((row) => ({
+            fullName: row.fullName.trim(),
+            fatherName: row.guardian?.name?.trim() || undefined,
+            guardianId: row.guardian?.id || undefined,
+            mobile: row.phone.trim() || undefined,
+            dateOfBirth: row.dateOfBirth || undefined,
+            bloodGroup: row.bloodGroup || undefined,
+            applicationId: row.applicationId || undefined,
+          })),
+        }),
+      });
+      const json = await res.json() as { items?: AdminStudentSummary[]; count?: number; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Could not enroll students");
+
+      const created = json.items ?? [];
+      toast({
+        title: `${created.length} student${created.length > 1 ? "s" : ""} enrolled`,
+        description: created.length === 1
+          ? `Register ID ${created[0]?.applicantId} assigned.`
+          : `Register IDs ${created.map((s) => s.applicantId).join(", ")} assigned.`,
+      });
+      onSaved(created);
+      onOpenChange(false);
+      setEnrollRows([mkEnrollRow()]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Could not enroll students";
       toast({ title: msg, variant: "destructive" });
     } finally { setBusy(false); }
   }
@@ -645,18 +635,14 @@ export function StudentFormDialog({
       const emptyIdx = enrollRows.findIndex(r => !r.fullName.trim());
       if (emptyIdx >= 0) {
         const target = enrollRows[emptyIdx];
-        setEnrollRows(p => p.map(r => {
-          if (r._rowId !== target._rowId) return r;
-          const merged = { ...r, ...rowPatch };
-          if (!merged.applicantId.trim() && grBaseLoaded) merged.applicantId = nextUniqueGr(p, grBaseSeq, r._rowId);
-          return merged;
-        }));
+        setEnrollRows(p => p.map(r => (r._rowId === target._rowId ? { ...r, ...rowPatch } : r)));
       } else {
-        setEnrollRows(p => {
-          const row = { ...mkEnrollRow(), ...rowPatch };
-          if (!row.applicantId.trim() && grBaseLoaded) row.applicantId = nextUniqueGr(p, grBaseSeq);
-          return [...p, row];
-        });
+        try {
+          const ids = await fetchRegisterIds(1);
+          setEnrollRows(p => [...p, { ...mkEnrollRow(), ...rowPatch, applicantId: ids[0] ?? "" }]);
+        } catch {
+          setEnrollRows(p => [...p, { ...mkEnrollRow(), ...rowPatch }]);
+        }
       }
     } catch {
       toast({ title: "Could not load applicant details", variant: "destructive" });
@@ -664,24 +650,16 @@ export function StudentFormDialog({
   }
 
   const genGrForRow = useCallback(async (rowId: string) => {
-    let base = stateRef.current.grBaseSeq;
-    if (!stateRef.current.grBaseLoaded) {
-      try {
-        const token = getToken();
-        const res = await fetch("/api/admin/students/next-gr", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        const json = await res.json();
-        if (!res.ok || typeof json?.nextSequence !== "number") throw new Error(json?.error);
-        base = json.nextSequence;
-        setGrBaseSeq(base);
-        setGrBaseLoaded(true);
-      } catch {
-        toast({ title: "Could not generate Applicant ID", variant: "destructive" });
-        return;
-      }
+    try {
+      const ids = await fetchRegisterIds(1);
+      setEnrollRows(p => p.map(r => (r._rowId === rowId ? { ...r, applicantId: ids[0] ?? "" } : r)));
+    } catch (err) {
+      toast({
+        title: "Could not generate Register ID",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
     }
-    setEnrollRows(p => p.map(r => r._rowId === rowId ? { ...r, applicantId: nextUniqueGr(p, base, rowId) } : r));
   }, [toast]);
 
   const cell = "w-full h-9 px-2.5 text-sm bg-transparent border-0 outline-none focus:bg-blue-50 focus:ring-1 focus:ring-inset focus:ring-blue-300 transition-colors placeholder:text-slate-300";
@@ -1135,7 +1113,22 @@ export default function Students() {
   const items = data?.items ?? [];
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-  function invalidate() { queryClient.invalidateQueries({ queryKey: ["/admin/students"] }); }
+  function invalidate(created?: AdminStudentSummary[]) {
+    if (created?.length) {
+      queryClient.setQueriesData(
+        { queryKey: ["/api/admin/students"] },
+        (old: { items?: AdminStudentSummary[]; total?: number; page?: number; pageSize?: number } | undefined) => {
+          if (!old?.items) return old;
+          return {
+            ...old,
+            items: [...created, ...old.items],
+            total: (old.total ?? old.items.length) + created.length,
+          };
+        },
+      );
+    }
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/students"] });
+  }
 
   const deleteMutation = useDeleteAdminStudent({
     mutation: {

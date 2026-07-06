@@ -17,7 +17,7 @@ const TOKEN_SECRET =
 const _missing: string[] = [];
 if (!process.env["SAAS_ADMIN_TOKEN_SECRET"] && !process.env["ADMIN_TOKEN_SECRET"]) _missing.push("SAAS_ADMIN_TOKEN_SECRET");
 if (!process.env["SAAS_ADMIN_PASSWORD"]) _missing.push("SAAS_ADMIN_PASSWORD");
-if (_missing.length) {
+if (_missing.length && process.env.NODE_ENV !== "production") {
   console.error(
     "\n⚠️  SECURITY WARNING ⚠️\n" +
     `   SaaS Admin is using insecure defaults for: ${_missing.join(", ")}\n` +
