@@ -320,7 +320,9 @@ export const ListAdminApplicationsResponse = zod.object({
   "admissionFeeStatus": zod.string().nullish(),
   "latestEventDescription": zod.string().nullish(),
   "sectionAllocId": zod.string().uuid().nullish().describe('UUID of the first section_allocations row for this application, or null if none. Present in list responses to let the Bulk Enroll dialog count section pre-assignments.'),
-  "sectionAllocSectionId": zod.string().uuid().nullish().describe('The sectionId from section_allocations for this application. Auto-filled by the Bulk Enroll dialog when an admitted applicant is picked.')
+  "sectionAllocSectionId": zod.string().uuid().nullish().describe('The sectionId from section_allocations for this application. Auto-filled by the Bulk Enroll dialog when an admitted applicant is picked.'),
+  "applicantId": zod.string().nullish().describe('The Applicant\/GR ID from the linked student record (tenant-scoped), or null if the applicant is not yet enrolled.'),
+  "isEnrolled": zod.boolean().optional().describe('True when a student record exists for this application (authoritative) or status already reads \'enrolled\'. Drives the enrollment grid\'s Enrolled badge and hides the Enroll action.')
 })),
   "total": zod.number().min(listAdminApplicationsResponseTotalMin),
   "page": zod.number().min(1),

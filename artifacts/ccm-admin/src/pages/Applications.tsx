@@ -5692,8 +5692,9 @@ function EnrollmentTab() {
   const { totalQualified, totalEnrolled, totalCancelled, totalRejected } = useMemo(() => {
     let totalQualified = 0, totalEnrolled = 0, totalCancelled = 0, totalRejected = 0;
     for (const a of enrollmentItems) {
-      if (a.status === "admitted" || a.status === "on_hold") totalQualified++;
-      else if (a.status === "enrolled") totalEnrolled++;
+      // A student record (isEnrolled) is authoritative even if status drifted.
+      if ((a as any).isEnrolled || a.status === "enrolled") totalEnrolled++;
+      else if (a.status === "admitted" || a.status === "on_hold") totalQualified++;
       else if (a.status === "cancelled_by_student") totalCancelled++;
       else if (a.status === "rejected_by_admission") totalRejected++;
     }
@@ -5704,8 +5705,11 @@ function EnrollmentTab() {
     outcomeFilter === "all"
       ? enrollmentItems
       : outcomeFilter === "pending"
-        ? enrollmentItems.filter(a => a.status === "admitted" || a.status === "on_hold")
-        : enrollmentItems.filter(a => a.status === outcomeFilter)
+        // Exclude drifted rows that actually have a student record from "pending".
+        ? enrollmentItems.filter(a => !(a as any).isEnrolled && (a.status === "admitted" || a.status === "on_hold"))
+        : outcomeFilter === "enrolled"
+          ? enrollmentItems.filter(a => (a as any).isEnrolled || a.status === "enrolled")
+          : enrollmentItems.filter(a => a.status === outcomeFilter)
   ), [enrollmentItems, outcomeFilter]);
 
   async function handlePrintOfferLettersHtml(
@@ -5771,7 +5775,8 @@ function EnrollmentTab() {
       const qualified = ids && ids.length > 0
         ? enrollmentItems.filter(a => ids.includes(a.referenceId))
         : enrollmentItems.filter(
-            a => (a.status === "admitted" || a.status === "on_hold") &&
+            a => !(a as any).isEnrolled &&
+                 (a.status === "admitted" || a.status === "on_hold") &&
                  (classFilter === "all" || a.classApplying === classFilter),
           );
       if (qualified.length === 0) {
@@ -5997,7 +6002,7 @@ function EnrollmentTab() {
         printTitle="Enrollment — Final Outcomes"
         rowActions={r => (
           <div className="flex items-center gap-1">
-            {r.status === "enrolled" && (
+            {((r as any).isEnrolled || r.status === "enrolled") && (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] font-semibold text-teal-700 mr-1"
                 title={(r as any).applicantId ? `Register ID: ${(r as any).applicantId}` : "Student enrolled"}
@@ -6026,7 +6031,7 @@ function EnrollmentTab() {
         )}
         bulkActions={(selectedIds) => {
           const admittedSelected = enrollmentItems.filter(
-            a => a.status === "admitted" && selectedIds.includes(a.referenceId),
+            a => a.status === "admitted" && !(a as any).isEnrolled && selectedIds.includes(a.referenceId),
           );
           return (
             <div className="flex items-center gap-1.5">
@@ -6174,6 +6179,9 @@ function EnrollButton({ app, onDone }: { app: any; onDone: () => void }) {
     });
   }, [open]);
 
+  // An already-enrolled candidate (student record exists) must never show the
+  // enroll action, even if its application status still drifted to "admitted".
+  if (app.isEnrolled || app.status === "enrolled") return null;
   if (app.status !== "admitted") return null;
 
   function handleEnroll() {

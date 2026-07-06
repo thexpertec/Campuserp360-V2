@@ -10677,6 +10677,8 @@ components:
         latestEventDescription: { type: ["string", "null"] }
         sectionAllocId: { type: ["string", "null"], format: uuid, description: "UUID of the first section_allocations row for this application, or null if none. Present in list responses to let the Bulk Enroll dialog count section pre-assignments." }
         sectionAllocSectionId: { type: ["string", "null"], format: uuid, description: "The sectionId from section_allocations for this application. Auto-filled by the Bulk Enroll dialog when an admitted applicant is picked." }
+        applicantId: { type: ["string", "null"], description: "The Applicant/GR ID from the linked student record (tenant-scoped), or null if the applicant is not yet enrolled." }
+        isEnrolled: { type: boolean, description: "True when a student record exists for this application (authoritative) or status already reads 'enrolled'. Drives the enrollment grid's Enrolled badge and hides the Enroll action." }
     DocumentVerificationRecord:
       type: object
       required: [referenceId, candidateName, fatherName, classApplying, city, phone, bFormAttached, lastClassResultAttached, verificationStatus, status, createdAt]

@@ -16,6 +16,7 @@ import { migrateAdminSystem } from "./lib/migrate-admin";
 import { migrateSaas } from "./lib/migrate-saas";
 import { migrateExamScheduleYears } from "./lib/migrate-exam-years";
 import { migrateStudentEnrollments } from "./lib/migrate-student-enrollments";
+import { migrateEnrolledStatus } from "./lib/migrate-enrolled-status";
 import { migrateTenants } from "./lib/migrate-tenants";
 import { migrateTenantModulePermissions } from "./lib/migrate-tenant-modules";
 import { migrateRateLimit } from "./lib/migrate-rate-limit";
@@ -99,6 +100,9 @@ async function startup() {
 
       await migrateExamScheduleYears();
       await migrateStudentEnrollments();
+      // Reconcile applications whose status drifted from an existing student record
+      // (student exists but status still 'admitted') → set them to 'enrolled'.
+      await migrateEnrolledStatus();
 
       // Per-tenant website CMS: add tenant_id columns, backfill existing content to
       // CCM, rebuild site_settings PK, and ensure the GCCM tenant + admin exist.

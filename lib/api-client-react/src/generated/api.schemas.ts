@@ -358,6 +358,13 @@ export interface AdminApplicationSummary {
      * @nullable
      */
   sectionAllocSectionId?: string | null;
+  /**
+     * The Applicant/GR ID from the linked student record (tenant-scoped), or null if the applicant is not yet enrolled.
+     * @nullable
+     */
+  applicantId?: string | null;
+  /** True when a student record exists for this application (authoritative) or status already reads 'enrolled'. Drives the enrollment grid's Enrolled badge and hides the Enroll action. */
+  isEnrolled?: boolean;
 }
 
 export interface DocumentVerificationRecord {

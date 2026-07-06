@@ -954,8 +954,19 @@ router.get(
           // Used by Bulk Enroll dialog to show section pre-assignment badge.
           sectionAllocId: sql<string | null>`(SELECT id FROM section_allocations WHERE application_id = ${applicationsTable.id} LIMIT 1)`,
           sectionAllocSectionId: sql<string | null>`(SELECT section_id FROM section_allocations WHERE application_id = ${applicationsTable.id} LIMIT 1)`,
+          // Authoritative enrolled indicator: a student record for this application.
+          // Tenant-scoped join so a record from another tenant can never leak here.
+          studentId: studentsTable.id,
+          applicantId: studentsTable.applicantId,
         })
         .from(applicationsTable)
+        .leftJoin(
+          studentsTable,
+          and(
+            eq(studentsTable.applicationId, applicationsTable.id),
+            eq(studentsTable.tenantId, tenantId),
+          ),
+        )
         .where(where)
         .orderBy(...((): ReturnType<typeof asc>[] => {
           function colClauses(key: string, dir: "asc" | "desc"): ReturnType<typeof asc>[] {
@@ -1024,6 +1035,9 @@ router.get(
           latestEventDescription: r.latestEventDescription ?? null,
           sectionAllocId: r.sectionAllocId ?? null,
           sectionAllocSectionId: r.sectionAllocSectionId ?? null,
+          applicantId: r.applicantId ?? null,
+          // A student record exists (authoritative) OR status already reads enrolled.
+          isEnrolled: r.studentId != null || r.status === "enrolled",
           studentEmail: r.studentEmail ?? null,
           studentMobile: r.studentMobile ?? null,
           studentBForm: r.studentBForm ?? null,
@@ -1312,7 +1326,13 @@ router.get(
           degreeUrl: sql<string | null>`(SELECT d.stored_name FROM application_documents d WHERE d.application_id = ${applicationsTable.id} AND (d.doc_type ILIKE '%result%' OR d.doc_type ILIKE '%marksheet%' OR d.doc_type ILIKE '%class_result%' OR d.doc_type ILIKE '%degree%' OR d.doc_type ILIKE '%cert%') ORDER BY d.uploaded_at DESC LIMIT 1)`,
         })
         .from(applicationsTable)
-        .leftJoin(studentsTable, eq(studentsTable.applicationId, applicationsTable.id))
+        .leftJoin(
+          studentsTable,
+          and(
+            eq(studentsTable.applicationId, applicationsTable.id),
+            eq(studentsTable.tenantId, tenantId),
+          ),
+        )
         .where(where)
         .orderBy(asc(applicationsTable.createdAt))
         .offset((page - 1) * pageSize)
@@ -1425,9 +1445,16 @@ router.get(
           admissionFeeVerifiedAmount: applicationsTable.admissionFeeVerifiedAmount,
           feeReceiptUrl:              applicationsTable.feeReceiptUrl,
           createdAt:                  applicationsTable.createdAt,
+          studentId:                 studentsTable.id,
         })
         .from(applicationsTable)
-        .leftJoin(studentsTable, eq(studentsTable.applicationId, applicationsTable.id))
+        .leftJoin(
+          studentsTable,
+          and(
+            eq(studentsTable.applicationId, applicationsTable.id),
+            eq(studentsTable.tenantId, tenantId),
+          ),
+        )
         .where(where)
         .orderBy(asc(applicationsTable.createdAt))
         .offset((page - 1) * pageSize)
@@ -1449,6 +1476,7 @@ router.get(
           admissionFeeVerifiedAmount: r.admissionFeeVerifiedAmount ?? null,
           feeReceiptUrl:              r.feeReceiptUrl ?? null,
           createdAt:                  r.createdAt.toISOString(),
+          isEnrolled:                r.studentId != null || r.status === "enrolled",
         })),
         total:             Number(counts?.total ?? 0),
         appFeePending:     Number(counts?.appFeePending ?? 0),
