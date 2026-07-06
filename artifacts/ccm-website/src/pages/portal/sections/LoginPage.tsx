@@ -92,6 +92,7 @@ export default function LoginPage({ onLogin }: { onLogin: (r: PortalLoginRespons
           </Button>
         </form>
 
+        {!import.meta.env.PROD && (
         <div className="mt-5 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
           <h5 className="text-emerald-800 font-bold text-sm mb-2">🧪 Demo Accounts</h5>
           <table className="w-full text-xs border-collapse">
@@ -121,9 +122,10 @@ export default function LoginPage({ onLogin }: { onLogin: (r: PortalLoginRespons
             </tbody>
           </table>
           <p className="text-[11px] text-emerald-800 mt-2">
-            Default password for all new accounts is <code className="bg-emerald-100 px-1 rounded">12345</code>. Change it after first login.
+            Demo accounts use seeded passwords. New applicants receive a unique password on the admissions form.
           </p>
         </div>
+        )}
 
         <p className="text-center text-xs text-foreground/60 mt-4">
           Don't have an account? Complete the{" "}

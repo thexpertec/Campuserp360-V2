@@ -8,6 +8,7 @@ import { resolveUrl } from "../lib/storage";
 import { seedAllData } from "../lib/seed-data";
 import { canonicalizeCnic, canonicalizePhone } from "../lib/format-utils.js";
 import { checkAcademicSetup, academicSetupErrorMessage } from "../lib/academic-setup";
+import { peekNextRegisterIds, RegisterIdError } from "../lib/register-id.js";
 import {
   DEFAULT_GR_FORMAT, DEFAULT_CANDIDATE_FORMAT, PREFIX_FIELD_LABELS,
   loadPrefixPool, findPrefixConflict, type PrefixPoolEntry,
@@ -40,6 +41,7 @@ import {
 import {
   requireAdmin,
   requireRole,
+  requireSuperAdmin,
   verifyToken,
   verifyPassword,
   verifyEnvCredentials,
@@ -54,67 +56,17 @@ const router: IRouter = Router();
 const ADMIN_UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 try { fs.mkdirSync(ADMIN_UPLOADS_DIR, { recursive: true }); } catch { /* ignore */ }
 
-// ── Global super-admin refresh ────────────────────────────────────────────────
-// Tenant admin users promoted to super_admin via the SaaS Admin panel may be
-// carrying a stale JWT (issued before the promotion).  This middleware reads the
-// token on every /admin/* request and, when the decoded user is a tenant admin
-// user whose token still says isSuperAdmin=false, checks their current role.
-// If they are now super_admin in the DB, it upgrades req.adminUser.isSuperAdmin
-// to true so that requireRole() bypasses all checks.
-//
-// The DB lookup is cached in-memory (60s TTL) — without the cache this added a
-// round-trip to the remote DB on EVERY /admin/* request, which measurably
-// slowed the whole console and amplified pool contention under load.
-const ROLE_CACHE_TTL_MS = 60_000;
-const roleRefreshCache = new Map<string, { isSuperAdmin: boolean; expires: number }>();
-
-async function isPromotedSuperAdmin(userId: string): Promise<boolean> {
-  const now = Date.now();
-  const cached = roleRefreshCache.get(userId);
-  if (cached && cached.expires > now) return cached.isSuperAdmin;
-
-  const [row] = await db
-    .select({ role: tenantAdminUsersTable.role })
-    .from(tenantAdminUsersTable)
-    .where(eq(tenantAdminUsersTable.id, userId))
-    .limit(1);
-  const isSuperAdmin = row?.role === "super_admin";
-
-  // Opportunistic cleanup so the map cannot grow unbounded.
-  if (roleRefreshCache.size > 1000) {
-    for (const [k, v] of roleRefreshCache) {
-      if (v.expires <= now) roleRefreshCache.delete(k);
-    }
-  }
-  roleRefreshCache.set(userId, { isSuperAdmin, expires: now + ROLE_CACHE_TTL_MS });
-  return isSuperAdmin;
-}
-
-router.use(async (req: Request, res: Response, next: NextFunction) => {
+// ── Auth pre-load (attach decoded user; never promote tenant users to platform super-admin) ──
+router.use(async (req: Request, _res: Response, next: NextFunction) => {
   try {
     const header = req.headers.authorization ?? "";
     const match = /^Bearer\s+(.+)$/i.exec(header);
     const rawToken = match?.[1]?.trim() ?? (req.query["token"] as string | undefined);
     if (!rawToken) { next(); return; }
-
     const user = verifyToken(rawToken);
-    if (!user) { next(); return; }
-
-    // Already a super admin per token — nothing to refresh.
-    if (user.isSuperAdmin) { req.adminUser = user; next(); return; }
-
-    // Only refresh for tenant admin users (they have a tenantId in the token
-    // but no rows in admin_user_roles — their isSuperAdmin comes from the
-    // tenant_admin_users.role column, which may have changed since login).
-    if (user.tenantId && user.id !== "env-admin") {
-      if (await isPromotedSuperAdmin(user.id)) {
-        user.isSuperAdmin = true;
-      }
-    }
-
-    req.adminUser = user;
+    if (user) req.adminUser = user;
   } catch {
-    // Non-fatal — let the route's own auth middleware reject if needed.
+    /* non-fatal */
   }
   next();
 });
@@ -145,6 +97,30 @@ function requireTenant(req: Request, res: Response): string | null {
     return null;
   }
   return tid;
+}
+
+async function loadFeeGateMode(tenantId: string): Promise<"block" | "warn"> {
+  const gateKey = `admission_fee_gate:${tenantId}`;
+  const [gateSetting] = await db
+    .select({ value: admissionsSettingsTable.value })
+    .from(admissionsSettingsTable)
+    .where(eq(admissionsSettingsTable.key, gateKey))
+    .limit(1);
+  return (gateSetting?.value ?? "warn") === "block" ? "block" : "warn";
+}
+
+function enrollmentFeeGateError(
+  app: typeof applicationsTable.$inferSelect,
+  mode: "block" | "warn",
+): string | null {
+  if (mode !== "block") return null;
+  if (app.feeStatus !== "paid") {
+    return "Enrollment blocked: the application fee must be verified before enrolling this cadet.";
+  }
+  if (app.admissionFeeStatus !== "paid") {
+    return "Enrollment blocked: the admission fee must be verified before enrolling this cadet.";
+  }
+  return null;
 }
 
 /**
@@ -1181,7 +1157,7 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   interview_scheduled:  ["interview_taken"],
   interview_taken:      ["result_announced", "admitted", "on_hold", "rejected"],
   result_announced:     ["admitted", "on_hold", "rejected"],
-  admitted:             ["enrolled", "cancelled_by_student", "rejected_by_admission"],
+  admitted:             ["cancelled_by_student", "rejected_by_admission"],
   on_hold:              ["admitted", "rejected", "cancelled_by_student", "rejected_by_admission"],
   cancelled_by_student:  [],
   rejected_by_admission: [],
@@ -1204,6 +1180,15 @@ function checkStatusTransition(
   force: boolean,
   proposed?: { resultMarks?: number; interviewMarks?: number },
 ): string | null {
+  const TERMINAL_FROM = new Set(["enrolled", "rejected", "cancelled_by_student", "rejected_by_admission"]);
+  if (toStatus === "enrolled") {
+    return 'Use the Enroll action to create a student record — status cannot be set to "enrolled" directly.';
+  }
+  if (TERMINAL_FROM.has(app.status) && app.status !== toStatus) {
+    const fromLabel = STATUS_LABELS[app.status] ?? app.status;
+    return `Cannot change status from terminal state "${fromLabel}".`;
+  }
+
   // 1. Soft data prerequisites — bypassable with force=true.
   if (!force) {
     if (toStatus === "test_taken") {
@@ -2407,109 +2392,51 @@ router.get("/admin/students/next-gr", requireAdmin, async (req: Request, res: Re
   try {
     const tenantId = requireTenant(req, res);
     if (!tenantId) return;
-    const year = new Date().getFullYear();
 
-    // Load the persisted GR format — this MUST exist before any Applicant ID
-    // can be generated.  Query params can supplement format values but they
-    // can never bypass the "format configured" gate.
-    const [fmtRow] = await db
-      .select({ value: admissionsSettingsTable.value })
-      .from(admissionsSettingsTable)
-      .where(eq(admissionsSettingsTable.key, `gr_format:${tenantId}`))
-      .limit(1);
-
-    // Hard gate: DB row must exist regardless of what query params the caller passes.
-    if (!fmtRow) {
-      return res.status(400).json({
-        error: "Applicant ID format is not configured for this tenant. Go to Settings → ID Format and set a prefix before generating Applicant IDs.",
-        code: "GR_FORMAT_NOT_CONFIGURED",
-      });
-    }
-
-    let dbFmt: { prefix?: string; separator?: string; includeYear?: boolean; paddingDigits?: string } = {};
-    try { dbFmt = JSON.parse(fmtRow.value); } catch {}
-
-    // Query params are allowed to override individual format values (e.g. for
-    // previewing a new format in the settings UI) but the DB row must exist.
-    const prefix = (typeof req.query.prefix === "string" && req.query.prefix.trim()
-      ? req.query.prefix.trim()
-      : null) ?? (typeof dbFmt.prefix === "string" && dbFmt.prefix.trim() ? dbFmt.prefix.trim() : "GR");
-
-    const sep = (typeof req.query.separator === "string" ? req.query.separator : null)
-      ?? (typeof dbFmt.separator === "string" ? dbFmt.separator : "-");
-    const includeYear = req.query.includeYear !== undefined
-      ? req.query.includeYear !== "false"
-      : (dbFmt.includeYear !== false);
-    const padding = (typeof req.query.paddingDigits === "string" ? (parseInt(req.query.paddingDigits) || null) : null)
-      ?? (dbFmt.paddingDigits ? (parseInt(dbFmt.paddingDigits) || 3) : 3);
-
-    // How many consecutive verified Applicant IDs to return (capped at 100).
     const count = Math.min(Math.max(parseInt(String(req.query.count ?? "1")) || 1, 1), 100);
 
-    const seqPosition = includeYear ? 3 : 2;
-
-    let likePattern: string;
-    if (includeYear) {
-      likePattern = `${prefix}${sep}${year}${sep}%`;
-    } else {
-      likePattern = `${prefix}${sep}%`;
+    let formatOverride: Partial<import("../lib/register-id.js").GrFormat> | undefined;
+    if (
+      typeof req.query.prefix === "string" ||
+      typeof req.query.separator === "string" ||
+      req.query.includeYear !== undefined ||
+      typeof req.query.paddingDigits === "string"
+    ) {
+      formatOverride = {
+        ...(typeof req.query.prefix === "string" && req.query.prefix.trim()
+          ? { prefix: req.query.prefix.trim() }
+          : {}),
+        ...(typeof req.query.separator === "string"
+          ? { separator: req.query.separator }
+          : {}),
+        ...(req.query.includeYear !== undefined
+          ? { includeYear: req.query.includeYear !== "false" }
+          : {}),
+        ...(typeof req.query.paddingDigits === "string"
+          ? { padding: parseInt(req.query.paddingDigits, 10) || 3 }
+          : {}),
+      };
     }
 
-    // applicant_id is unique per (tenant_id, applicant_id) — scope all checks
-    // to the current tenant so each tenant has its own independent sequence.
-    const [row] = await db
-      .select({
-        maxSeq: sql<number | null>`COALESCE(MAX(CAST(SPLIT_PART(${studentsTable.applicantId}, ${sep}, ${seqPosition}) AS INTEGER)), 0)`,
-      })
-      .from(studentsTable)
-      .where(and(
-        sql`${studentsTable.applicantId} LIKE ${likePattern}`,
-        eq(studentsTable.tenantId, tenantId),
-      ));
+    const { applicantIds, nextSequence } = await peekNextRegisterIds(
+      db,
+      tenantId,
+      count,
+      formatOverride,
+    );
 
-    let seq = (row?.maxSeq ?? 0) + 1;
-
-    const buildGr = (s: number): string => {
-      const parts = [prefix!];
-      if (includeYear) parts.push(String(year));
-      parts.push(String(s).padStart(padding, "0"));
-      return parts.join(sep);
-    };
-
-    // Always return server-verified Applicant IDs (skipping gaps and manual entries).
-    const applicantIds: string[] = [];
-    let firstSeq: number | null = null;
-    let attempt = 0;
-    const maxAttempts = count * 10 + 200;
-
-    while (applicantIds.length < count && attempt < maxAttempts) {
-      attempt++;
-      const candidate = buildGr(seq);
-      const [existing] = await db
-        .select({ id: studentsTable.id })
-        .from(studentsTable)
-        .where(and(eq(studentsTable.applicantId, candidate), eq(studentsTable.tenantId, tenantId)))
-        .limit(1);
-      if (!existing) {
-        if (firstSeq === null) firstSeq = seq;
-        applicantIds.push(candidate);
-      }
-      seq++;
-    }
-
-    if (applicantIds.length < count) {
-      return res.status(409).json({
-        error: `Could not find ${count} available Applicant ID(s) after ${maxAttempts} attempts. Please check existing Applicant IDs.`,
-      });
-    }
-
-    // Backward-compat: single-GR callers still get nextSequence + nextGr.
     return res.json({
       nextApplicantId: applicantIds[0],
-      nextSequence: firstSeq,   // first sequence number used (backward compat)
-      applicantIds,                // full verified list (length === count)
+      nextSequence,
+      applicantIds,
     });
   } catch (err) {
+    if (err instanceof RegisterIdError) {
+      return res.status(err.code === "GR_FORMAT_NOT_CONFIGURED" ? 400 : 409).json({
+        error: err.message,
+        code: err.code,
+      });
+    }
     req.log.error({ err }, "Failed to get next GR sequence");
     return res.status(500).json({ error: "Failed to compute next Applicant ID" });
   }
@@ -2534,14 +2461,7 @@ router.post(
       // so surface the reason upfront rather than repeating it per row.
       const academicSetup = await checkAcademicSetup(tenantId);
 
-      // Resolve admission fee gate mode once for the tenant.
-      const gateKey = `admission_fee_gate:${tenantId}`;
-      const [gateSetting] = await db
-        .select({ value: admissionsSettingsTable.value })
-        .from(admissionsSettingsTable)
-        .where(eq(admissionsSettingsTable.key, gateKey))
-        .limit(1);
-      const feeGateMode = gateSetting?.value ?? "warn"; // "block" | "warn"
+      const feeGateMode = await loadFeeGateMode(tenantId);
 
       // Fetch active academic year once (shared across all enrollments).
       const [activeYear] = await db
@@ -2588,9 +2508,10 @@ router.post(
             continue;
           }
 
-          // ── Admission fee gate (same as single-enroll, "block" mode) ────
-          if (feeGateMode === "block" && app.admissionFeeStatus !== "paid") {
-            results.push({ referenceId, success: false, error: "Enrollment blocked: admission fee must be verified before enrolling this cadet." });
+          // ── Fee gates (never bypassed by force) ───────────────────────────
+          const feeErr = enrollmentFeeGateError(app, feeGateMode);
+          if (feeErr) {
+            results.push({ referenceId, success: false, error: feeErr });
             continue;
           }
 
@@ -2764,20 +2685,10 @@ router.post(
         return res.status(400).json({ error: "classCode is required — set 'Class Applying' on the application or select a class in the enrollment dialog" });
       }
 
-      // Check admission fee gate — "block" mode prevents enrollment until fee is
-      // verified, unless force=true (staff confirmed they want to proceed anyway).
-      if (!force) {
-        const gateKey = `admission_fee_gate:${tenantId}`;
-        const [gateSetting] = await db
-          .select()
-          .from(admissionsSettingsTable)
-          .where(eq(admissionsSettingsTable.key, gateKey))
-          .limit(1);
-        if ((gateSetting?.value ?? "warn") === "block" && app.admissionFeeStatus !== "paid") {
-          return res.status(400).json({
-            error: "Enrollment blocked: the admission fee must be verified before enrolling this cadet. Go to Fee Verification to verify the payment first.",
-          });
-        }
+      const feeGateMode = await loadFeeGateMode(tenantId);
+      const feeErr = enrollmentFeeGateError(app, feeGateMode);
+      if (feeErr) {
+        return res.status(400).json({ error: feeErr });
       }
 
       // Prevent double-enrollment
@@ -5107,7 +5018,7 @@ function drawAdmitCard(
 // ── Fee confirmation ──────────────────────────────────────────────────────────
 router.patch(
   "/admin/applications/:referenceId/fee/confirm",
-  requireRole("admissions", "draft"),
+  requireRole("admissions", "post"),
   async (req: Request, res: Response) => {
     const referenceId = String(req.params.referenceId);
     try {
@@ -5118,9 +5029,17 @@ router.patch(
         .limit(1);
       const app = apps[0];
       if (!app) return res.status(404).json({ error: "Application not found" });
-      // Idempotency guard: reject if already paid (mirrors the cash route pattern)
       if (app.feeStatus === "paid") {
         return res.status(409).json({ error: "Application fee is already marked as paid" });
+      }
+      const hasEvidence = Boolean(
+        app.feeReceiptUrl ||
+        app.feeBankRef?.trim() ||
+        app.feeSubmittedAt ||
+        ["submitted", "bank_pending"].includes(app.feeStatus ?? ""),
+      );
+      if (!hasEvidence) {
+        return res.status(400).json({ error: "No fee submission to confirm — receipt or bank reference required." });
       }
       // Atomic update: only the request that flips feeStatus away from a non-paid state proceeds
       const confirmed = await db
@@ -6091,7 +6010,11 @@ router.post(
         if (examCenter)        patch.examCenter = examCenter;
         if (presentAddress)    patch.presentAddress = presentAddress;
         if (classApplying)     patch.classApplying = classApplying;
-        if (paymentStatus && ["pending", "submitted", "paid"].includes(paymentStatus)) patch.feeStatus = paymentStatus;
+        if (paymentStatus === "paid") {
+          // Bulk import cannot mark fees paid — use Fee Verification workflow.
+          continue;
+        }
+        if (paymentStatus && ["pending", "submitted"].includes(paymentStatus)) patch.feeStatus = paymentStatus;
         if (applicationDate) {
           const parsedDate = parseImportDate(applicationDate);
           if (parsedDate) patch.createdAt = parsedDate;
@@ -6154,7 +6077,7 @@ router.post(
       const examCenter      = String(row.examCenter     ?? "").trim() || "-";
       const presentAddress  = String(row.presentAddress ?? row.address ?? "").trim() || "-";
       const rawPaymentStatus = String(row.paymentStatus ?? "").trim().toLowerCase();
-      const feeStatus       = ["pending", "submitted", "paid"].includes(rawPaymentStatus) ? rawPaymentStatus : "pending";
+      const feeStatus       = ["pending", "submitted"].includes(rawPaymentStatus) ? rawPaymentStatus : "pending";
       const rawAppDate      = String(row.applicationDate ?? "").trim();
       const createdAt       = parseImportDate(rawAppDate) ?? new Date();
 
@@ -7070,7 +6993,7 @@ router.delete("/admin/interviewers/:id", requireAdmin, async (req: Request, res:
 });
 
 // ── Dev: seed all demo data ───────────────────────────────────────────────────
-router.post("/admin/dev/seed-all", requireAdmin, async (req: Request, res: Response) => {
+router.post("/admin/dev/seed-all", requireSuperAdmin, async (req: Request, res: Response) => {
   try {
     await seedAllData();
     return res.json({ ok: true, message: "Seed complete — empty tables have been populated." });

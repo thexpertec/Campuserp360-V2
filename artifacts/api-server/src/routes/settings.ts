@@ -2,11 +2,17 @@ import { Router, type IRouter, type Request, type Response, json as expressJson 
 import fs from "node:fs";
 import path from "node:path";
 import { db } from "@workspace/db";
-import { printSettingsTable, tenantsTable } from "@workspace/db";
+import { tenantsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAdmin, requireSuperAdmin } from "../lib/admin-auth";
 import { seedDummyData, clearAllData } from "../lib/seed-dummy-data";
-import { putObject, deleteObject, resolveUrl } from "../lib/storage";
+import { putObject, deleteObject } from "../lib/storage";
+import {
+  loadPrintSettings,
+  savePrintSettings,
+  tenantPrintBgKey,
+  toPrintSettingsResponse,
+} from "../lib/print-settings";
 
 const router: IRouter = Router();
 
@@ -16,40 +22,18 @@ const PRINT_DIR = path.join(UPLOADS_DIR, "print");
 // Ensure directory exists (still needed for fallback mode)
 if (!fs.existsSync(PRINT_DIR)) fs.mkdirSync(PRINT_DIR, { recursive: true });
 
-const DEFAULTS = {
-  marginTop: 20,
-  marginRight: 15,
-  marginBottom: 20,
-  marginLeft: 15,
-  pageSize: "A4",
-  orientation: "portrait",
-  bgImageUrl: null as string | null,
-};
-
 // ── GET /api/admin/print-settings ──────────────────────────────────────────────
 router.get("/admin/print-settings", requireAdmin, async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).adminUser?.tenantId as string | undefined;
-    const [rows, tenantRows] = await Promise.all([
-      db.select().from(printSettingsTable).where(eq(printSettingsTable.id, 1)),
+    const [row, tenantRows] = await Promise.all([
+      loadPrintSettings(tenantId),
       tenantId
         ? db.select({ name: tenantsTable.name }).from(tenantsTable).where(eq(tenantsTable.id, tenantId))
         : Promise.resolve([] as { name: string }[]),
     ]);
-    const row = rows[0];
     const instituteName = tenantRows[0]?.name ?? "";
-    if (!row) return res.json({ ...DEFAULTS, showInstituteName: true, instituteName });
-    return res.json({
-      marginTop: row.marginTop,
-      marginRight: row.marginRight,
-      marginBottom: row.marginBottom,
-      marginLeft: row.marginLeft,
-      pageSize: row.pageSize,
-      orientation: row.orientation,
-      bgImageUrl: resolveUrl(row.bgImagePath) ?? null,
-      showInstituteName: row.showInstituteName,
-      instituteName,
-    });
+    return res.json(toPrintSettingsResponse(row, instituteName));
   } catch (err) {
     console.error("print-settings GET error:", err);
     return res.status(500).json({ error: "Failed to fetch settings" });
@@ -63,14 +47,12 @@ router.put("/admin/print-settings", requireAdmin, async (req: Request, res: Resp
     pageSize: string; orientation: string; showInstituteName?: boolean;
   };
   try {
+    const tenantId = (req as any).adminUser?.tenantId as string | undefined;
     const vals = {
       marginTop, marginRight, marginBottom, marginLeft, pageSize, orientation,
       ...(showInstituteName !== undefined ? { showInstituteName } : {}),
     };
-    await db
-      .insert(printSettingsTable)
-      .values({ id: 1, ...vals })
-      .onConflictDoUpdate({ target: printSettingsTable.id, set: vals });
+    await savePrintSettings(tenantId, vals);
     return res.json({ ok: true });
   } catch (err) {
     console.error("print-settings PUT error:", err);
@@ -85,22 +67,16 @@ router.post("/admin/print-settings/bg", requireAdmin, expressJson({ limit: "10mb
   const { dataUrl } = req.body as { dataUrl: string; ext?: string };
   if (!dataUrl) return res.status(400).json({ error: "dataUrl required" });
 
-  const filename = "bg.webp";
-  const filepath = path.join(PRINT_DIR, filename);
-  const urlPath  = `/uploads/print/${filename}`;
-
   try {
-    // Decode, convert to WebP, upload
+    const tenantId = (req as any).adminUser?.tenantId as string | undefined;
+    const objectKey = tenantId ? tenantPrintBgKey(tenantId) : "print/bg.webp";
+
     const raw     = dataUrl.replace(/^data:image\/\w+;base64,/, "");
     const sharp   = (await import("sharp")).default;
     const webpBuf = await sharp(Buffer.from(raw, "base64")).webp({ quality: 85 }).toBuffer();
-    const resolvedUrl = await putObject("print/bg.webp", webpBuf, "image/webp");
+    const resolvedUrl = await putObject(objectKey, webpBuf, "image/webp");
 
-    // Persist URL in DB
-    await db
-      .insert(printSettingsTable)
-      .values({ id: 1, bgImagePath: resolvedUrl })
-      .onConflictDoUpdate({ target: printSettingsTable.id, set: { bgImagePath: resolvedUrl } });
+    await savePrintSettings(tenantId, { bgImagePath: resolvedUrl });
 
     return res.json({ url: resolvedUrl });
   } catch (err) {
@@ -110,14 +86,12 @@ router.post("/admin/print-settings/bg", requireAdmin, expressJson({ limit: "10mb
 });
 
 // ── DELETE /api/admin/print-settings/bg ───────────────────────────────────────
-router.delete("/admin/print-settings/bg", requireAdmin, async (_req: Request, res: Response) => {
+router.delete("/admin/print-settings/bg", requireAdmin, async (req: Request, res: Response) => {
   try {
-    await deleteObject("print/bg.webp");
-    // Clear DB path
-    await db
-      .insert(printSettingsTable)
-      .values({ id: 1, bgImagePath: null })
-      .onConflictDoUpdate({ target: printSettingsTable.id, set: { bgImagePath: null } });
+    const tenantId = (req as any).adminUser?.tenantId as string | undefined;
+    const objectKey = tenantId ? tenantPrintBgKey(tenantId) : "print/bg.webp";
+    await deleteObject(objectKey);
+    await savePrintSettings(tenantId, { bgImagePath: null });
 
     return res.json({ ok: true });
   } catch (err) {

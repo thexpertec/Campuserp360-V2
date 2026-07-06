@@ -4,7 +4,7 @@ import type { Request, Response, NextFunction } from "express";
 const PORTAL_TOKEN_SECRET =
   process.env["PORTAL_TOKEN_SECRET"] ?? "ccm-portal-dev-secret-change-me";
 
-if (!process.env["PORTAL_TOKEN_SECRET"]) {
+if (!process.env["PORTAL_TOKEN_SECRET"] && process.env.NODE_ENV !== "production") {
   console.error(
     "\n⚠️  SECURITY WARNING ⚠️\n" +
     "   PORTAL_TOKEN_SECRET is not set — using an insecure hardcoded default.\n" +

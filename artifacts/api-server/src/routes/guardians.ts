@@ -9,6 +9,22 @@ function reqTenantId(req: Request): string | undefined {
   return (req as any).adminUser?.tenantId as string | undefined;
 }
 
+async function guardianForTenant(guardianId: string, tenantId: string | undefined) {
+  const [guardian] = await db
+    .select()
+    .from(guardiansTable)
+    .where(eq(guardiansTable.id, guardianId));
+  if (!guardian) return null;
+  if (!tenantId) return guardian;
+  if (guardian.tenantId === tenantId) return guardian;
+  const [linked] = await db
+    .select({ id: studentsTable.id })
+    .from(studentsTable)
+    .where(and(eq(studentsTable.guardianId, guardianId), eq(studentsTable.tenantId, tenantId)))
+    .limit(1);
+  return linked ? guardian : null;
+}
+
 /** WHERE clause for a student lookup scoped to the requesting admin's tenant. */
 function stuByIdScoped(req: Request, studentId: string) {
   const tid = reqTenantId(req);
@@ -357,16 +373,10 @@ router.get("/admin/guardians/search", requireAdmin, async (req: Request, res: Re
 router.get("/admin/guardians/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
-    const [guardian] = await db
-      .select()
-      .from(guardiansTable)
-      .where(eq(guardiansTable.id, id));
-
+    const tenantId = reqTenantId(req);
+    const guardian = await guardianForTenant(id, tenantId);
     if (!guardian) return res.status(404).json({ error: "Guardian not found" });
 
-    const tenantId = reqTenantId(req);
-    // Match children by guardian_id FK OR by father_name/guardian_name text so
-    // students without a correctly set guardian_id FK still show up.
     const childMatchCond = or(
       eq(studentsTable.guardianId, id),
       sql`LOWER(COALESCE(${studentsTable.fatherName},   '')) = LOWER(${guardian.name})`,
@@ -469,6 +479,13 @@ router.post("/admin/guardians", requireAdmin, async (req: Request, res: Response
 router.patch("/admin/guardians/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
+    const tenantId = reqTenantId(req);
+    const existing = await guardianForTenant(id, tenantId);
+    if (!existing) return res.status(404).json({ error: "Guardian not found" });
+    if (tenantId && existing.tenantId && existing.tenantId !== tenantId) {
+      return res.status(404).json({ error: "Guardian not found" });
+    }
+
     const { name, cnic, phone, email, city, address, notes } = req.body as {
       name?: string; cnic?: string | null; phone?: string | null; email?: string | null;
       city?: string | null; address?: string | null; notes?: string | null;
@@ -532,7 +549,10 @@ router.patch("/admin/guardians/:id", requireAdmin, async (req: Request, res: Res
     const [updated] = await db
       .update(guardiansTable)
       .set(patch)
-      .where(eq(guardiansTable.id, id))
+      .where(and(
+        eq(guardiansTable.id, id),
+        tenantId ? eq(guardiansTable.tenantId, tenantId) : sql`true`,
+      ))
       .returning();
 
     if (!updated) return res.status(404).json({ error: "Guardian not found" });
@@ -551,11 +571,16 @@ router.patch("/admin/guardians/:id", requireAdmin, async (req: Request, res: Res
 router.delete("/admin/guardians/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
+    const tenantId = reqTenantId(req);
+    const existing = await guardianForTenant(id, tenantId);
+    if (!existing) return res.status(404).json({ error: "Guardian not found" });
 
     const [linked] = await db
       .select({ cnt: count() })
       .from(studentsTable)
-      .where(eq(studentsTable.guardianId, id));
+      .where(tenantId
+        ? and(eq(studentsTable.guardianId, id), eq(studentsTable.tenantId, tenantId))
+        : eq(studentsTable.guardianId, id));
 
     if (Number(linked?.cnt ?? 0) > 0) {
       return res.status(409).json({
@@ -565,7 +590,10 @@ router.delete("/admin/guardians/:id", requireAdmin, async (req: Request, res: Re
 
     const [deleted] = await db
       .delete(guardiansTable)
-      .where(eq(guardiansTable.id, id))
+      .where(and(
+        eq(guardiansTable.id, id),
+        tenantId ? eq(guardiansTable.tenantId, tenantId) : sql`true`,
+      ))
       .returning();
 
     if (!deleted) return res.status(404).json({ error: "Guardian not found" });

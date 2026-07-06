@@ -532,7 +532,11 @@ router.post("/admin/exams/schedules/:id/results/bulk", requireRole("exams", "dra
     const tenantId = await getAdminTenantId(req);
     if (!tenantId) return res.status(400).json({ error: "Tenant not resolved" });
 
-    const [schedule] = await db.select({ resultsStatus: examSchedulesTable.resultsStatus, tenantId: examSchedulesTable.tenantId })
+    const [schedule] = await db.select({
+      resultsStatus: examSchedulesTable.resultsStatus,
+      tenantId: examSchedulesTable.tenantId,
+      totalMarks: examSchedulesTable.totalMarks,
+    })
       .from(examSchedulesTable)
       .where(and(eq(examSchedulesTable.id, scheduleId), eq(examSchedulesTable.tenantId, tenantId)));
     if (!schedule) return res.status(404).json({ error: "Schedule not found" });
@@ -541,11 +545,41 @@ router.post("/admin/exams/schedules/:id/results/bulk", requireRole("exams", "dra
     }
 
     const studentIds = rows.map(r => r.studentId);
-    const owned = await db.select({ id: studentsTable.id }).from(studentsTable)
+    const owned = await db.select({ id: studentsTable.id, fullName: studentsTable.fullName }).from(studentsTable)
       .where(and(inArray(studentsTable.id, studentIds), eq(studentsTable.tenantId, tenantId)));
-    const ownedSet = new Set(owned.map(s => s.id));
-    if (studentIds.some(id => !ownedSet.has(id))) {
+    const ownedMap = new Map(owned.map(s => [s.id, s.fullName]));
+    if (studentIds.some(id => !ownedMap.has(id))) {
       return res.status(403).json({ error: "One or more students not in this tenant" });
+    }
+
+    for (const r of rows) {
+      const isAbsent = r.isAbsent ?? false;
+      const obtained = r.obtainedMarks;
+
+      if (isAbsent) {
+        if (obtained !== null && obtained !== undefined) {
+          const label = ownedMap.get(r.studentId) ?? r.studentId;
+          return res.status(400).json({ error: `${label}: absent students must not have marks.` });
+        }
+        continue;
+      }
+
+      if (obtained === null || obtained === undefined) continue;
+
+      if (!Number.isFinite(obtained) || !Number.isInteger(obtained)) {
+        const label = ownedMap.get(r.studentId) ?? r.studentId;
+        return res.status(400).json({ error: `${label}: marks must be a whole number.` });
+      }
+      if (obtained < 0) {
+        const label = ownedMap.get(r.studentId) ?? r.studentId;
+        return res.status(400).json({ error: `${label}: marks cannot be less than 0.` });
+      }
+      if (obtained > schedule.totalMarks) {
+        const label = ownedMap.get(r.studentId) ?? r.studentId;
+        return res.status(400).json({
+          error: `${label}: marks cannot exceed the total marks (${schedule.totalMarks}).`,
+        });
+      }
     }
 
     for (const r of rows) {

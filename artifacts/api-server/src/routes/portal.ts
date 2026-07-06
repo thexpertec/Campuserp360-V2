@@ -1,11 +1,13 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import crypto from "node:crypto";
-import { db, applicationsTable, applicationDocumentsTable, applicationEventsTable, PAYMENT_CONFIG_DEFAULTS, tenantsTable, printSettingsTable } from "@workspace/db";
+import { db, applicationsTable, applicationDocumentsTable, applicationEventsTable, PAYMENT_CONFIG_DEFAULTS, tenantsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { issuePortalToken, requirePortal } from "../lib/portal-auth";
 import { putObject } from "../lib/storage";
 import { resolvePaymentConfig } from "../lib/payment-config-cache.js";
+import { hashPortalPassword, verifyPortalPassword } from "../lib/portal-password.js";
+import { loadPrintSettings } from "../lib/print-settings.js";
 
 const router: IRouter = Router();
 
@@ -38,7 +40,7 @@ function dueDateStr(createdAt: Date, daysAfter: number): string {
 }
 
 async function buildPortalUser(app: typeof applicationsTable.$inferSelect) {
-  const [docs, payConfig, tenantRows, printRows] = await Promise.all([
+  const [docs, payConfig, tenantRows, printSettings] = await Promise.all([
     db
       .select()
       .from(applicationDocumentsTable)
@@ -47,7 +49,7 @@ async function buildPortalUser(app: typeof applicationsTable.$inferSelect) {
     app.tenantId
       ? db.select({ name: tenantsTable.name }).from(tenantsTable).where(eq(tenantsTable.id, app.tenantId))
       : Promise.resolve([] as { name: string }[]),
-    db.select({ showInstituteName: printSettingsTable.showInstituteName }).from(printSettingsTable).where(eq(printSettingsTable.id, 1)),
+    loadPrintSettings(app.tenantId ?? undefined),
   ]);
 
   const docMap: Record<string, { uploaded: boolean; verified: boolean; rejected: boolean; rejection_reason?: string }> = {};
@@ -66,7 +68,7 @@ async function buildPortalUser(app: typeof applicationsTable.$inferSelect) {
   const year = app.createdAt.getFullYear();
 
   const school_name = tenantRows[0]?.name ?? "";
-  const show_institute_name = printRows[0]?.showInstituteName ?? true;
+  const show_institute_name = printSettings.showInstituteName ?? true;
 
   return {
     ref_id: app.referenceId,
@@ -175,7 +177,12 @@ router.post("/portal/login", portalLoginLimiter, async (req: Request, res: Respo
 
     const app = apps[0];
 
-    if (!app || app.portalPassword !== (password as string)) {
+    if (!app) {
+      return res.status(401).json({ error: "Invalid credentials. Check your email/phone and password." });
+    }
+
+    const { valid } = await verifyPortalPassword(password as string, app.portalPassword);
+    if (!valid) {
       return res.status(401).json({ error: "Invalid credentials. Check your email/phone and password." });
     }
 
@@ -230,12 +237,14 @@ router.patch("/portal/password", requirePortal, async (req: Request, res: Respon
       .limit(1);
     const app = apps[0];
     if (!app) return res.status(404).json({ error: "Application not found" });
-    if (app.portalPassword !== currentPassword) {
+    const { valid } = await verifyPortalPassword(currentPassword as string, app.portalPassword);
+    if (!valid) {
       return res.status(401).json({ error: "Current password is incorrect" });
     }
+    const newHash = await hashPortalPassword(newPassword as string);
     await db
       .update(applicationsTable)
-      .set({ portalPassword: newPassword as string })
+      .set({ portalPassword: newHash })
       .where(eq(applicationsTable.id, app.id));
     return res.json({ success: true });
   } catch (err) {
