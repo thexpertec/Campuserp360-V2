@@ -22,6 +22,21 @@ import {
 import { issueToken } from "../lib/admin-auth";
 import { clearTenantCache } from "../lib/tenant";
 import { seedNewTenant } from "../lib/seed-data.js";
+import {
+  loadPrefixPool, findPrefixConflict, loadTenantPrefixes,
+  DEFAULT_GR_FORMAT, DEFAULT_CANDIDATE_FORMAT,
+  PREFIX_FIELD_LABELS, type PrefixPoolEntry,
+} from "../lib/prefix-pool";
+
+// Builds the 409 message when a slug collides with an entry in the global
+// identifier pool (another tenant's slug, or any tenant's ID prefix).
+function slugConflictMessage(slug: string, conflict: PrefixPoolEntry): string {
+  if (conflict.field === "slug") {
+    return "A tenant with this slug already exists";
+  }
+  const owner = conflict.tenantName ? `tenant "${conflict.tenantName}"` : "another tenant";
+  return `Slug "${slug}" conflicts with the ${PREFIX_FIELD_LABELS[conflict.field]} of ${owner}. Choose a different slug.`;
+}
 
 const router: IRouter = Router();
 
@@ -140,11 +155,18 @@ router.get(
   requireSaasAdmin,
   async (_req: Request, res: Response) => {
     try {
-      const tenants = await db
-        .select()
-        .from(tenantsTable)
-        .orderBy(tenantsTable.createdAt);
-      res.json(tenants);
+      const [tenants, prefixes] = await Promise.all([
+        db.select().from(tenantsTable).orderBy(tenantsTable.createdAt),
+        loadTenantPrefixes(),
+      ]);
+      res.json(tenants.map((t) => {
+        const p = prefixes.get(String(t.id));
+        return {
+          ...t,
+          applicantPrefix: p?.applicantPrefix ?? DEFAULT_CANDIDATE_FORMAT.prefix,
+          enrolledPrefix:  p?.enrolledPrefix ?? DEFAULT_GR_FORMAT.prefix,
+        };
+      }));
     } catch (err) {
       res.status(500).json({ error: "Failed to list tenants" });
     }
@@ -238,6 +260,14 @@ router.post(
           return;
         }
       }
+      // Slug must be unique across the global identifier pool: every tenant's
+      // slug AND every tenant's applicant/enrolled ID prefixes (case-insensitive).
+      const pool = await loadPrefixPool();
+      const slugConflict = findPrefixConflict(pool, "", "slug", parsed.data.slug.toUpperCase());
+      if (slugConflict) {
+        res.status(409).json({ error: slugConflictMessage(parsed.data.slug, slugConflict) });
+        return;
+      }
       const [tenant] = await db
         .insert(tenantsTable)
         .values({
@@ -325,15 +355,14 @@ router.patch(
           return;
         }
       }
-      // Check slug uniqueness before writing
+      // Check slug uniqueness against the global identifier pool (all tenant
+      // slugs + all applicant/enrolled ID prefixes, case-insensitive). A
+      // tenant's own current values never conflict with themselves.
       if (parsed.data.slug !== undefined) {
-        const existing = await db
-          .select({ id: tenantsTable.id })
-          .from(tenantsTable)
-          .where(eq(tenantsTable.slug, parsed.data.slug));
-        const conflict = existing.find((r) => String(r.id) !== tenantId);
+        const pool = await loadPrefixPool();
+        const conflict = findPrefixConflict(pool, tenantId, "slug", parsed.data.slug.toUpperCase());
         if (conflict) {
-          res.status(409).json({ error: "A tenant with this slug already exists" });
+          res.status(409).json({ error: slugConflictMessage(parsed.data.slug, conflict) });
           return;
         }
       }

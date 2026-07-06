@@ -197,6 +197,34 @@ test("global ID prefix uniqueness across applicant + register prefixes and tenan
       assert.equal(free.body.available, true, "an unused prefix is available");
     });
 
+    await t.test("tenant slugs are part of the global pool", async () => {
+      // Another tenant's slug is not available as a prefix (case-insensitive).
+      const otherSlug = await api(
+        "/api/admin/settings/gr-format/check-prefix?prefix=goly-cukoos&field=gr",
+        TOKEN.ccm,
+      );
+      assert.equal(otherSlug.body.available, false, "another tenant's slug blocks the prefix");
+
+      // A tenant's OWN slug never conflicts with its own prefixes.
+      const ownSlug = await api(
+        "/api/admin/settings/gr-format/check-prefix?prefix=GOLY-CUKOOS&field=gr",
+        TOKEN.goly,
+      );
+      assert.equal(ownSlug.body.available, true, "a tenant's own slug stays available to itself");
+
+      // Saving a prefix equal to another tenant's slug is rejected.
+      const res = await api("/api/admin/settings/gr-format", TOKEN.goly, {
+        method: "PUT",
+        body: JSON.stringify({
+          ...origGoly.body,
+          prefix: "GOLY-CUKOOS",
+          candidate: { ...origGoly.body.candidate, prefix: "CCM" },
+        }),
+      });
+      assert.equal(res.status, 409, JSON.stringify(res.body));
+      assert.equal(res.body.field, "candidate");
+    });
+
     await t.test("PUT without candidate (legacy client) preserves the saved candidate format", async () => {
       const legacyBody: any = { ...origCcm.body, prefix: CCM_GR };
       delete legacyBody.candidate;

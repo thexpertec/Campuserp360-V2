@@ -8,6 +8,10 @@ import { resolveUrl } from "../lib/storage";
 import { seedAllData } from "../lib/seed-data";
 import { canonicalizeCnic, canonicalizePhone } from "../lib/format-utils.js";
 import { checkAcademicSetup, academicSetupErrorMessage } from "../lib/academic-setup";
+import {
+  DEFAULT_GR_FORMAT, DEFAULT_CANDIDATE_FORMAT, PREFIX_FIELD_LABELS,
+  loadPrefixPool, findPrefixConflict, type PrefixPoolEntry,
+} from "../lib/prefix-pool";
 import { db, applicationsTable, applicationEventsTable, testCentresTable, studentsTable, guardiansTable, meritConfigTable, academicYearsTable, admissionsSettingsTable, applicationDocumentsTable, employeesTable, hrLeaveRequestsTable, hrDepartmentsTable, hrAttendanceTable, employeeSalaryTransactionsTable, hostelAllocationsTable, hostelRoomsTable, hostelBlocksTable, libraryIssuesTable, medicalVisitsTable, transportVehiclesTable, storeItemsTable, feeChallansTable, classesTable, subjectsTable, examSchedulesTable, examTypesTable, batchPrintJobsTable, studentPrintRecordsTable, adminUsersTable, sectionAllocationsTable, studentEnrollmentsTable, interviewersTable, testSchedulesTable, paymentTransactionsTable, mediaLibraryTable, tenantAdminUsersTable, tenantsTable, printTemplatesTable, printSignaturesTable, bankAccountsTable, journalEntriesTable } from "@workspace/db";
 import { tryCreateAndPostJE, coaByCode, coaById, postApplicationFeeJE } from "../lib/je-factory";
 import { resolvePaymentConfig } from "../lib/payment-config-cache.js";
@@ -5789,60 +5793,17 @@ router.patch("/admin/settings/admission-fee-gate", requireAdmin, async (req: Req
 
 // ── Applicant ID format settings (persisted per-tenant in admissions_settings) ───
 
-const DEFAULT_GR_FORMAT = {
-  prefix: "GR",
-  separator: "-",
-  includeYear: true,
-  paddingDigits: "3",
-  startingNumber: "1",
-};
+// The shared global identifier pool (tenant slugs + all tenants' ID prefixes)
+// lives in ../lib/prefix-pool and is also used by the SaaS Admin routes.
 
-const DEFAULT_CANDIDATE_FORMAT = {
-  prefix: "CCM",
-  separator: "-",
-  includeYear: true,
-  suffixStyle: "random",
-  suffixLength: "6",
-};
-
-// Builds the global prefix pool from every tenant's saved ID-format row.
-// Each entry covers BOTH the register (gr) prefix and the candidate prefix.
-type PrefixPoolEntry = { tenantId: string; field: "gr" | "candidate"; prefix: string };
-
-async function loadPrefixPool(): Promise<PrefixPoolEntry[]> {
-  const allRows = await db
-    .select({ key: admissionsSettingsTable.key, value: admissionsSettingsTable.value })
-    .from(admissionsSettingsTable)
-    .where(sql`${admissionsSettingsTable.key} LIKE ${"gr_format:%"}`);
-
-  const pool: PrefixPoolEntry[] = [];
-  for (const row of allRows) {
-    const rowTenantId = row.key.replace("gr_format:", "");
-    try {
-      const fmt = JSON.parse(row.value);
-      const grPrefix = String(fmt.prefix ?? "").trim().toUpperCase();
-      if (grPrefix) pool.push({ tenantId: rowTenantId, field: "gr", prefix: grPrefix });
-      const candPrefix = String(fmt.candidate?.prefix ?? "").trim().toUpperCase();
-      if (candPrefix) pool.push({ tenantId: rowTenantId, field: "candidate", prefix: candPrefix });
-    } catch {}
+// Human-readable description of what a conflicting pool entry is, for error
+// messages shown in the ID Format settings.
+function describePrefixConflict(conflict: PrefixPoolEntry, ownTenantId: string): string {
+  if (conflict.field === "slug") {
+    return `it is already used as the web address (slug) of another college`;
   }
-  return pool;
-}
-
-// Finds a conflicting entry for `prefix` being saved as `field` by `tenantId`.
-// Conflicts: same code used by ANY prefix in ANY other tenant, or by the
-// sibling field within the same tenant.
-function findPrefixConflict(
-  pool: PrefixPoolEntry[],
-  tenantId: string,
-  field: "gr" | "candidate",
-  prefix: string,
-): PrefixPoolEntry | undefined {
-  return pool.find(
-    (e) =>
-      e.prefix === prefix &&
-      !(e.tenantId === tenantId && e.field === field),
-  );
+  const owner = conflict.tenantId === ownTenantId ? "this college" : "another college";
+  return `it is already in use as the ${PREFIX_FIELD_LABELS[conflict.field]} of ${owner}`;
 }
 
 router.get("/admin/settings/gr-format", requireAdmin, async (req: Request, res: Response) => {
@@ -5949,7 +5910,7 @@ router.put("/admin/settings/gr-format", requireAdmin, async (req: Request, res: 
     const grConflict = findPrefixConflict(pool, tenantId, "gr", cleanPrefix);
     if (grConflict) {
       return res.status(409).json({
-        error: `Register ID prefix "${cleanPrefix}" is already in use${grConflict.tenantId === tenantId ? "" : " by another tenant"}. Choose a unique prefix.`,
+        error: `Register ID prefix "${cleanPrefix}" cannot be used — ${describePrefixConflict(grConflict, tenantId)}. Choose a unique prefix.`,
         field: "gr",
       });
     }
@@ -5958,7 +5919,7 @@ router.put("/admin/settings/gr-format", requireAdmin, async (req: Request, res: 
       const candConflict = findPrefixConflict(pool, tenantId, "candidate", cleanCandidatePrefix);
       if (candConflict) {
         return res.status(409).json({
-          error: `Applicant ID prefix "${cleanCandidatePrefix}" is already in use${candConflict.tenantId === tenantId ? "" : " by another tenant"}. Choose a unique prefix.`,
+          error: `Applicant ID prefix "${cleanCandidatePrefix}" cannot be used — ${describePrefixConflict(candConflict, tenantId)}. Choose a unique prefix.`,
           field: "candidate",
         });
       }

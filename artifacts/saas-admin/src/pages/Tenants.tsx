@@ -218,6 +218,8 @@ export default function Tenants() {
                 <tr className="border-b border-slate-800">
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Tenant</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Slug</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Applicant ID Prefix</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Enrolled ID Prefix</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Plan</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Created</th>
@@ -246,6 +248,12 @@ export default function Tenants() {
                     </td>
                     <td className="px-5 py-4">
                       <code className="text-xs text-indigo-300 bg-indigo-950/40 px-2 py-1 rounded">{t.slug}</code>
+                    </td>
+                    <td className="px-5 py-4">
+                      <code className="text-xs text-emerald-300 bg-emerald-950/40 px-2 py-1 rounded">{t.applicantPrefix}</code>
+                    </td>
+                    <td className="px-5 py-4">
+                      <code className="text-xs text-amber-300 bg-amber-950/40 px-2 py-1 rounded">{t.enrolledPrefix}</code>
                     </td>
                     <td className="px-5 py-4">
                       <span className={`text-xs font-semibold px-2 py-1 rounded-full capitalize ${PLAN_COLORS[t.plan] ?? "bg-slate-700 text-slate-200"}`}>

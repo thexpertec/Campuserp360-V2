@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "gzPeHBFcwnB8V7T7iKzop"
+uri = "file://exports/ccm-project.tar.gz"
+type = "unspecified"
+title = "CCM Project Source (for Cursor)"

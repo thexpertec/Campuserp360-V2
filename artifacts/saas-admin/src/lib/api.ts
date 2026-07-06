@@ -81,6 +81,7 @@ export const api = {
     request<Array<{
       id: string; name: string; slug: string; contactEmail: string | null; domain: string | null;
       plan: string; isActive: boolean; createdAt: string; updatedAt: string;
+      applicantPrefix: string; enrolledPrefix: string;
     }>>("GET", "/tenants"),
 
   createTenant: (data: {
