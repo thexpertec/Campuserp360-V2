@@ -476,6 +476,18 @@ function derivedInterviewStatus(status: string): { label: string; color: string 
   if (status === "interview_scheduled") return { label: "Scheduled", color: "#7c3aed" };
   return { label: "Completed", color: "#0891b2" };
 }
+// Effective interview status value (interview_scheduled | interview_taken) used
+// as the Interview tab dropdown value. An applicant at interview_taken or any
+// LATER pipeline stage (result_announced, admitted, enrolled, on_hold,
+// rejected) has, by definition, completed the interview — so the saved status
+// must not visually fall back to the placeholder once they advance. Mirrors
+// entryTestStatusValue for the Entry Test tab. Returns undefined for pre-
+// interview stages (placeholder is correct).
+function interviewStatusValue(status: string): string | undefined {
+  const d = derivedInterviewStatus(status);
+  if (!d) return undefined;
+  return status === "interview_scheduled" ? "interview_scheduled" : "interview_taken";
+}
 function derivedEnrollmentStatus(status: string): { label: string; color: string } | null {
   const m: Record<string, { label: string; color: string }> = {
     result_announced: { label: "Result Out",   color: "#10b981" },
@@ -7453,7 +7465,7 @@ function InterviewTab() {
       }
       if (!res.ok) throw new Error("Failed");
       invalidate();
-      toast({ title: "Interview marks saved — status set to Interview Taken" });
+      toast({ title: "Interview marks saved — status set to Interview Completed" });
     } catch {
       toast({ title: "Save failed", variant: "destructive" });
     } finally {
@@ -7563,7 +7575,7 @@ function InterviewTab() {
   const ivColumns: ColDef<IVRow>[] = [
     { key: "referenceId",    label: "Applicant ID",        defaultVisible: false, defaultWidth: 120, render: r => <span className="font-mono text-xs font-bold text-indigo-600">{r.referenceId}</span>, getText: r => r.referenceId },
     { key: "name",           label: "Student Name",        defaultVisible: true,  defaultWidth: 200, render: r => <div><p className="font-semibold text-slate-800 text-[13px]">{r.fullName}</p><p className="text-[11px] text-slate-400 font-mono">{r.referenceId}</p></div>, getText: r => r.fullName ?? "" },
-    { key: "status",         label: "Interview Status",    defaultVisible: true,  defaultWidth: 180, render: r => r.status === "enrolled" ? <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2.5 py-0.5 text-[11px] font-semibold text-teal-700"><Lock className="h-3 w-3" />Enrolled</span> : <InlineStatusCell app={r} onMutate={(id, st) => inlineMutation.mutate({ referenceId: id, data: { status: st as never, force: true } as never })} isUpdating={inlineMutation.isPending && inlineMutation.variables?.referenceId === r.referenceId} allowedStatuses={INTERVIEW_STATUS_OPTIONS} placeholder="Schedule An Interview" />, getText: r => statusLabel(r.status ?? "") },
+    { key: "status",         label: "Interview Status",    defaultVisible: true,  defaultWidth: 180, render: r => r.status === "enrolled" ? <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2.5 py-0.5 text-[11px] font-semibold text-teal-700"><Lock className="h-3 w-3" />Enrolled</span> : <InlineStatusCell app={r} onMutate={(id, st) => inlineMutation.mutate({ referenceId: id, data: { status: st as never, force: true } as never })} isUpdating={inlineMutation.isPending && inlineMutation.variables?.referenceId === r.referenceId} allowedStatuses={INTERVIEW_STATUS_OPTIONS} placeholder="Schedule An Interview" currentValue={interviewStatusValue(r.status ?? "")} />, getText: r => statusLabel(r.status ?? "") },
     { key: "interviewDate",  label: "Date",                defaultVisible: true,  defaultWidth: 115, render: r => <span className="text-[12px] text-slate-600">{r.interviewDate ? new Date(r.interviewDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : <span className="text-slate-300">—</span>}</span>, getText: r => r.interviewDate ? new Date(r.interviewDate).toLocaleDateString("en-GB") : "" },
     { key: "interviewVenue", label: "Venue",               defaultVisible: true,  defaultWidth: 140, render: r => <div className="flex items-center gap-1.5 text-[12px] text-slate-600">{(r as any).interviewVenue ? <><MapPin className="h-3 w-3 text-slate-400 shrink-0" /><span className="truncate">{(r as any).interviewVenue}</span></> : <span className="text-slate-300">—</span>}</div>, getText: r => (r as any).interviewVenue ?? "" },
     { key: "interviewedBy",  label: "Interviewed By",      defaultVisible: true,  defaultWidth: 155, render: r => <span className="text-[12px] text-slate-600">{(r as any).interviewedBy ?? <span className="text-slate-300">—</span>}</span>, getText: r => (r as any).interviewedBy ?? "" },

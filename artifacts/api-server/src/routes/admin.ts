@@ -1844,7 +1844,7 @@ router.patch(
           continue;
         }
         // Auto-advance to interview_taken when interviewMarks provided and status is before that stage
-        const BEFORE_INTERVIEW_TAKEN_IV = ["received", "under_review", "verified", "test_scheduled", "test_taken", "interview_scheduled"];
+        const BEFORE_INTERVIEW_TAKEN_IV = ["received", "under_review", "pending_verification", "verified", "test_scheduled", "test_taken", "interview_scheduled"];
         if (updates.interviewMarks !== undefined && !updates.status && BEFORE_INTERVIEW_TAKEN_IV.includes(pre.status)) {
           updates.status = "interview_taken";
         }
@@ -3142,7 +3142,7 @@ router.patch(
           }
 
           const BEFORE_TEST_TAKEN_BULK = ["received", "under_review", "verified", "test_scheduled"];
-          const BEFORE_INTERVIEW_TAKEN_BULK = ["received", "under_review", "verified", "test_scheduled", "test_taken", "interview_scheduled"];
+          const BEFORE_INTERVIEW_TAKEN_BULK = ["received", "under_review", "pending_verification", "verified", "test_scheduled", "test_taken", "interview_scheduled"];
 
           if (entry.resultMarks !== undefined) {
             // Entry test marks may only be recorded once the test has been taken.
@@ -3226,7 +3226,7 @@ router.patch(
       }
 
       const BEFORE_TEST_TAKEN = ["received", "under_review", "verified", "test_scheduled"];
-      const BEFORE_INTERVIEW_TAKEN = ["received", "under_review", "verified", "test_scheduled", "test_taken", "interview_scheduled"];
+      const BEFORE_INTERVIEW_TAKEN = ["received", "under_review", "pending_verification", "verified", "test_scheduled", "test_taken", "interview_scheduled"];
 
       if (resultMarks !== undefined) {
         const n = Number(resultMarks);
