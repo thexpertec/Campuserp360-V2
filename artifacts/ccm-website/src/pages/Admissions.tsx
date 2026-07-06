@@ -151,6 +151,43 @@ const stepFields: Record<number, (keyof ApplicationFormValues)[]> = {
 // errors that zodResolver pre-populates for fields outside the current step.
 const ALL_VALIDATED_FIELDS = Object.values(stepFields).flat();
 
+// Reverse map: which step does a given field live on? Used to jump the user to
+// the earliest step containing a server-reported validation error.
+const fieldToStep: Record<string, number> = {};
+for (const [stepStr, names] of Object.entries(stepFields)) {
+  for (const name of names) fieldToStep[name as string] = Number(stepStr);
+}
+
+// Human-friendly labels for fields, so a server validation error can name the
+// exact field instead of showing a raw key or a generic message.
+const FIELD_LABELS: Record<string, string> = {
+  classApplying: "Class / Program",
+  previousMarks: "Previous Marks",
+  fullName: "Student Name",
+  dateOfBirth: "Date of Birth",
+  bloodGroup: "Blood Group",
+  domicile: "Domicile",
+  gender: "Gender",
+  religion: "Religion",
+  nationality: "Nationality",
+  studentMobile: "Student Mobile",
+  studentEmail: "Student Email",
+  presentAddress: "Present Address",
+  state: "Province / State",
+  city: "City",
+  examCenter: "Exam Center",
+  guardianName: "Guardian Name",
+  relation: "Relation",
+  fatherName: "Father Name",
+  motherName: "Mother Name",
+  occupation: "Occupation",
+  guardianMobile: "Guardian Mobile",
+  guardianEmail: "Guardian Email",
+  alternatePhone: "Alternate Phone",
+  parentCnic: "Parent CNIC",
+  studentBForm: "Student B-Form / CNIC",
+};
+
 // Controls when validation messages are allowed to surface. zodResolver
 // pre-populates the RHF errors object for fields the user hasn't reached yet,
 // so we gate *display* on actual interaction rather than on the errors object.
@@ -462,6 +499,36 @@ export default function Admissions() {
 
   // ── Payment step handlers ──────────────────────────────────────────────────
 
+  // Surface a server 400 validation body ({ fields: [{ field, message }] }) onto
+  // the form: mark each field, jump to the earliest affected step, and toast the
+  // specific fields. Returns true when it handled field-level errors. Shared by
+  // the standard submit (onSubmit) and the online-gateway submit path.
+  function surfaceFieldErrors(body: unknown): boolean {
+    const fields = Array.isArray((body as any)?.fields)
+      ? ((body as any).fields as { field: string; message: string }[])
+      : [];
+    if (fields.length === 0) return false;
+    setShowErrors(true);
+    let earliestStep = Infinity;
+    const labels: string[] = [];
+    for (const f of fields) {
+      form.setError(f.field as keyof ApplicationFormValues, {
+        message: f.message || "Please check this field",
+      });
+      const st = fieldToStep[f.field];
+      if (st !== undefined && st < earliestStep) earliestStep = st;
+      labels.push(FIELD_LABELS[f.field] ?? f.field);
+    }
+    if (earliestStep !== Infinity) setStep(earliestStep);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    toast({
+      title: "Please check these fields",
+      description: `${labels.join(", ")} — ${fields[0].message || "needs attention"}.`,
+      variant: "destructive",
+    });
+    return true;
+  }
+
   async function handlePaymentComplete(method: string, reference: string, status: string) {
     paymentDataRef.current = { method, reference, status };
     await form.handleSubmit(onSubmit)();
@@ -496,7 +563,18 @@ export default function Admissions() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error((data as any).error || `Request failed (${response.status})`);
+        setPaymentProcessing(false);
+        // 400 with field-level issues → target the exact fields (same as the
+        // standard submit path) instead of a generic "could not start payment".
+        if (response.status === 400 && surfaceFieldErrors(data)) return;
+        toast({
+          title: "Could not start payment",
+          description:
+            (data as any).error ||
+            "An error occurred while connecting to the payment gateway. Please try again or use bank transfer.",
+          variant: "destructive",
+        });
+        return;
       }
 
       const { actionUrl, fields } = (await response.json()) as {
@@ -651,10 +729,15 @@ export default function Admissions() {
         }
         return;
       }
+      // 400 with a field-keyed list → mark those exact fields and jump the user
+      // to the earliest step that needs fixing, instead of a generic message.
+      if (err instanceof ApiError && err.status === 400 && surfaceFieldErrors((err.data as any) ?? {})) {
+        return;
+      }
       const message =
         err instanceof ApiError
           ? err.status === 400
-            ? "Some details look invalid. Please review and try again."
+            ? ((err.data as any)?.error ?? "Some details look invalid. Please review and try again.")
             : "We couldn't save your application right now. Please retry in a moment."
           : "Network error. Please check your connection and try again.";
       toast({
@@ -1416,8 +1499,8 @@ export default function Admissions() {
                                 </button>
                               )}
 
-                              {/* JazzCash */}
-                              {paymentConfig?.enableJazzcash !== false && (
+                              {/* JazzCash — only when enabled AND credentials are configured */}
+                              {paymentConfig?.enableJazzcash !== false && paymentConfig?.jazzcashConfigured === true && (
                                 <button
                                   type="button"
                                   onClick={() => setSelectedPayMethod("jazzcash")}
@@ -1438,8 +1521,8 @@ export default function Admissions() {
                                 </button>
                               )}
 
-                              {/* PayFast */}
-                              {paymentConfig?.enablePayfast !== false && (
+                              {/* PayFast — only when enabled AND credentials are configured */}
+                              {paymentConfig?.enablePayfast !== false && paymentConfig?.payfastConfigured === true && (
                                 <button
                                   type="button"
                                   onClick={() => setSelectedPayMethod("payfast")}

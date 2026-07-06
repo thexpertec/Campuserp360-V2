@@ -218,11 +218,28 @@ function invalidateStatsCache(tenantId?: string): void {
   }
 }
 
+// Turn Zod validation issues into a compact, field-keyed list the frontend can
+// map back onto specific form inputs (instead of showing one generic error).
+function zodFieldErrors(issues: { path: (string | number)[]; message: string }[]) {
+  const seen = new Set<string>();
+  const fields: { field: string; message: string }[] = [];
+  for (const it of issues) {
+    const field = it.path.filter((p) => typeof p === "string").join(".") || "form";
+    if (seen.has(field)) continue;
+    seen.add(field);
+    fields.push({ field, message: it.message });
+  }
+  return fields;
+}
+
 router.post("/applications", async (req: Request, res: Response) => {
   const parsed = SubmitApplicationBody.safeParse(req.body);
   if (!parsed.success) {
     req.log.warn({ issues: parsed.error.issues }, "Invalid application submission");
-    return res.status(400).json({ error: "Invalid application data" });
+    return res.status(400).json({
+      error: "Please correct the highlighted fields and try again.",
+      fields: zodFieldErrors(parsed.error.issues),
+    });
   }
   const input = parsed.data;
 
@@ -560,7 +577,10 @@ router.post("/applications/payment/initiate", async (req: Request, res: Response
   const parsed = SubmitApplicationBody.safeParse(formData);
   if (!parsed.success) {
     req.log.warn({ issues: parsed.error.issues }, "Invalid application data in payment/initiate");
-    return res.status(400).json({ error: "Invalid application data" });
+    return res.status(400).json({
+      error: "Please correct the highlighted fields and try again.",
+      fields: zodFieldErrors(parsed.error.issues),
+    });
   }
   const input = parsed.data;
 

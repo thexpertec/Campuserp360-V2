@@ -14824,6 +14824,8 @@ components:
         enableBankDeposit:     { type: boolean }
         enableJazzcash:        { type: boolean }
         enablePayfast:         { type: boolean }
+        jazzcashConfigured:    { type: boolean, description: "JazzCash gateway has credentials configured" }
+        payfastConfigured:     { type: boolean, description: "PayFast gateway has credentials configured" }
 
     JournalEntrySummary:
       type: object

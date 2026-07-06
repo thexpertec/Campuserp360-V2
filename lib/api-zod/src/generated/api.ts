@@ -12224,7 +12224,9 @@ export const GetWebsiteAdmissionPaymentConfigResponse = zod.object({
   "challanInstructions": zod.string().optional(),
   "enableBankDeposit": zod.boolean(),
   "enableJazzcash": zod.boolean(),
-  "enablePayfast": zod.boolean()
+  "enablePayfast": zod.boolean(),
+  "jazzcashConfigured": zod.boolean().optional().describe('JazzCash gateway has credentials configured'),
+  "payfastConfigured": zod.boolean().optional().describe('PayFast gateway has credentials configured')
 })
 
 

@@ -18,4 +18,8 @@ export interface PublicPaymentConfig {
   enableBankDeposit: boolean;
   enableJazzcash: boolean;
   enablePayfast: boolean;
+  /** JazzCash gateway has credentials configured */
+  jazzcashConfigured?: boolean;
+  /** PayFast gateway has credentials configured */
+  payfastConfigured?: boolean;
 }

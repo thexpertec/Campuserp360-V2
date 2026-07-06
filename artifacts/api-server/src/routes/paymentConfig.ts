@@ -7,6 +7,7 @@ import {
   resolvePaymentConfig,
   invalidatePaymentConfigCache,
 } from "../lib/payment-config-cache.js";
+import { resolveGatewayCredentials } from "../lib/gateway-credentials-cache.js";
 
 const router: IRouter = Router();
 
@@ -95,15 +96,23 @@ router.get("/website/admissions/payment-config", publicTenant, async (req: Reque
     res.setHeader("Cache-Control", "public, max-age=60");
 
     if (!tenantId) {
-      return res.json({ ...PAYMENT_CONFIG_DEFAULTS });
+      return res.json({ ...PAYMENT_CONFIG_DEFAULTS, jazzcashConfigured: false, payfastConfigured: false });
     }
 
     const config = await resolvePaymentConfig(tenantId);
-    return res.json(config);
+    // Whether each online gateway actually has credentials. The frontend uses
+    // this to hide gateways that are enabled but not yet configured, so a
+    // candidate can never pick a method that would fail at checkout.
+    const creds = await resolveGatewayCredentials(tenantId);
+    return res.json({
+      ...config,
+      jazzcashConfigured: creds.jazzcash.configured,
+      payfastConfigured:  creds.payfast.configured,
+    });
   } catch (err) {
     req.log?.error?.({ err }, "Failed to load public payment config");
     res.setHeader("Cache-Control", "public, max-age=60");
-    return res.json({ ...PAYMENT_CONFIG_DEFAULTS });
+    return res.json({ ...PAYMENT_CONFIG_DEFAULTS, jazzcashConfigured: false, payfastConfigured: false });
   }
 });
 
