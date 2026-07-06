@@ -5878,7 +5878,7 @@ function EnrollmentTab() {
     { key: "name",        label: "Cadet Name",     defaultVisible: true, defaultWidth: 200, render: r => <p className="font-semibold text-slate-800 text-[13px]">{r.fullName}</p>, getText: r => r.fullName ?? "" },
     { key: "fatherName",  label: "Father's Name",  defaultVisible: true, defaultWidth: 180, render: r => <span className="text-slate-600 text-[12.5px]">{r.fatherName ?? "—"}</span>, getText: r => r.fatherName ?? "" },
     { key: "class",       label: "Class/Program",           defaultVisible: true, defaultWidth: 150, render: r => <span className="text-slate-600 text-[12.5px]">{classLabel(r.classApplying ?? "")}</span>, getText: r => classLabel(r.classApplying ?? "") },
-    { key: "marks",       label: "Test Marks",      defaultVisible: true, defaultWidth: 100, render: r => typeof r.resultMarks === "number" ? <span className="font-bold text-slate-800">{r.resultMarks}</span> : <span className="text-slate-300">—</span>, getText: r => r.resultMarks != null ? String(r.resultMarks) : "" },
+    { key: "marks",       label: "Merit Marks",     defaultVisible: true, defaultWidth: 100, render: r => typeof r.resultMarks === "number" ? <span className="font-bold text-slate-800">{r.resultMarks}</span> : <span className="text-slate-300">—</span>, getText: r => r.resultMarks != null ? String(r.resultMarks) : "" },
     { key: "status",      label: "Outcome",         defaultVisible: true, defaultWidth: 190, render: r => <StatusBadge status={r.status ?? ""} />, getText: r => statusLabel(r.status ?? "") },
     {
       key: "admissionFee",
