@@ -26,6 +26,7 @@ type DocVerifStatus = "not_verified" | "partial_verified" | "verified";
 type DocVerifyRecord = {
   referenceId: string;
   applicantId: string | null;
+  isEnrolled?: boolean;
   candidateName: string;
   fatherName: string;
   classApplying: string;
@@ -541,7 +542,7 @@ export default function DocumentVerificationTab() {
                   const rowHasChanges = EDITABLE_FIELDS.some((f) =>
                     grid.isCellDirty(r.referenceId, f, f === "docVerificationStatus" ? r.docVerificationStatus : (r[f as keyof DocVerifyRecord] as string) ?? ""),
                   );
-                  const isEnrolled = r.status === "enrolled";
+                  const isEnrolled = r.isEnrolled || r.status === "enrolled";
 
                   return (
                     <tr

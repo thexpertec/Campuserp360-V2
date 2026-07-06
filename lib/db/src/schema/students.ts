@@ -134,6 +134,7 @@ export const studentsTable = pgTable(
   (t) => ({
     applicantIdIdx: uniqueIndex("students_applicant_id_idx").on(t.tenantId, t.applicantId),
     applicationIdx: index("students_application_idx").on(t.applicationId),
+    applicationIdUniq: uniqueIndex("students_application_id_uniq").on(t.applicationId),
     classIdx: index("students_class_idx").on(t.classCode),
     sectionIdx: index("students_section_idx").on(t.sectionId),
     houseIdx: index("students_house_idx").on(t.houseId),
