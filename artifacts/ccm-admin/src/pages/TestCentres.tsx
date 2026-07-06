@@ -190,8 +190,8 @@ export default function TestCentres() {
   }
 
   async function handleSave() {
-    const valid = rows.filter(r => r.name.trim() && r.city.trim());
-    if (!valid.length) { toast({ title: "Name and City are required", variant: "destructive" }); return; }
+    const valid = rows.filter(r => r.name.trim() && r.city.trim() && r.centreCode.trim());
+    if (!valid.length) { toast({ title: "Name, City and Code are required", variant: "destructive" }); return; }
     setBusy(true);
     try {
       if (editing) {
@@ -502,7 +502,7 @@ export default function TestCentres() {
                 <tr className="bg-slate-100 border-b-2 border-slate-200 select-none">
                   <th className="py-2.5 text-center text-[10px] text-slate-400 border-r border-slate-200">#</th>
                   {[
-                    { l: "Name", req: true }, { l: "City", req: true }, { l: "Code (mono)" },
+                    { l: "Name", req: true }, { l: "City", req: true }, { l: "Code (mono)", req: true },
                     { l: "Address" }, { l: "Focal Person" }, { l: "Phone" },
                     { l: "Venue Type" }, { l: "Sort" }, { l: "Active" },
                   ].map(({ l, req }) => (
@@ -586,11 +586,11 @@ export default function TestCentres() {
 
           <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-white">
             {(() => {
-              const ready = rows.filter(r => r.name.trim() && r.city.trim()).length;
+              const ready = rows.filter(r => r.name.trim() && r.city.trim() && r.centreCode.trim()).length;
               return (
                 <>
                   <p className="text-xs text-slate-400">
-                    {ready > 0 ? <><span className="font-semibold text-slate-700">{ready}</span> of {rows.length} rows ready</> : <span className="text-amber-500">Fill Name + City to enable save</span>}
+                    {ready > 0 ? <><span className="font-semibold text-slate-700">{ready}</span> of {rows.length} rows ready</> : <span className="text-amber-500">Fill Name + City + Code to enable save</span>}
                   </p>
                   <div className="flex gap-2.5">
                     <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={busy}>Cancel</Button>
