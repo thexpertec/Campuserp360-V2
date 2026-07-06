@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { formatCurrency, todayIso } from "@/lib/locale";
 import { useQuery } from "@tanstack/react-query";
@@ -626,9 +627,9 @@ export function BulkFeeCollection() {
             <div className="text-xs text-amber-800 leading-snug">
               <span className="font-semibold">No payment accounts configured</span>
               {" — "}
-              <a href="/admin/accounts?tab=setup" target="_blank" className="underline hover:text-amber-900">
+              <Link href="/accounts?tab=setup" className="underline hover:text-amber-900">
                 set up a Cash or Bank account first
-              </a>
+              </Link>
             </div>
           </div>
         )}
@@ -840,14 +841,13 @@ export function BulkFeeCollection() {
                       ) : !hasAccounts ? (
                         <div className="px-3 py-4 text-center space-y-2">
                           <p className="text-xs text-amber-700 font-medium">No bank or cash accounts set up yet.</p>
-                          <a
-                            href="/admin/accounts?tab=setup"
-                            target="_blank"
+                          <Link
+                            href="/accounts?tab=setup"
                             className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
                           >
                             <svg className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                             Set up Cash &amp; Bank accounts →
-                          </a>
+                          </Link>
                         </div>
                       ) : (() => {
                         const nodes: React.ReactNode[] = [];

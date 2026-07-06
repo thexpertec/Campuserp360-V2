@@ -17,7 +17,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { formatDate, formatCurrency } from "@/lib/locale";
 import { useAdminNames } from "@/components/AuditStamp";
-import { useSearch, useLocation } from "wouter";
+import { useSearch, useLocation, Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useListAdminFeeTypes,
@@ -1936,10 +1936,10 @@ function TabCollectFee() {
                   {allAccounts.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-border bg-slate-50 px-4 py-6 text-center space-y-1.5">
                       <p className="text-sm font-medium text-slate-600">No accounts set up yet.</p>
-                      <a href="/admin/accounts?tab=setup" target="_blank"
+                      <Link href="/accounts?tab=setup"
                         className="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
                         <ExternalLink className="h-3 w-3" /> Set up an account →
-                      </a>
+                      </Link>
                     </div>
                   ) : (
                     <div className="space-y-1.5">
@@ -2094,9 +2094,9 @@ function TabCollectFee() {
                     <div className="text-xs text-amber-800 leading-snug">
                       <span className="font-semibold">No accounts configured</span>
                       {" — "}
-                      <a href="/admin/accounts?tab=setup" target="_blank" className="underline hover:text-amber-900">
+                      <Link href="/accounts?tab=setup" className="underline hover:text-amber-900">
                         set up an account first
-                      </a>
+                      </Link>
                     </div>
                   </div>
                 )}

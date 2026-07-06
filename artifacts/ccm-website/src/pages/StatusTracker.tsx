@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { formatDate as fmtLocDate } from "@/lib/locale";
 import { Helmet } from "react-helmet-async";
 import { motion, AnimatePresence } from "framer-motion";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useLookupApplication, type ApplicationDetail, type ApplicationEvent } from "@workspace/api-client-react";
 import { ApiError } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -749,10 +749,10 @@ function ActionsRow({ application }: { application: ApplicationDetail }) {
         </a>
       </Button>
       <Button asChild variant="outline" className="h-auto py-4 gap-2 flex-col border-2">
-        <a href="/contact" data-testid="button-contact">
+        <Link href="/contact" data-testid="button-contact">
           <ArrowRight className="w-5 h-5 text-primary" />
           <span className="font-semibold">Contact Admissions</span>
-        </a>
+        </Link>
       </Button>
     </div>
   );

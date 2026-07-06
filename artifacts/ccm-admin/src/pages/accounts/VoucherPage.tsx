@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { todayIso } from "@/lib/locale";
-import { useLocation, useRoute } from "wouter";
+import { useLocation, useRoute, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -258,7 +258,7 @@ export function VoucherPage({ type }: { type: "receipt" | "payment" }) {
             <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-800 leading-snug">
               <span className="font-semibold">No cash/bank accounts found</span>{" — "}
-              <a href="/admin/accounts?tab=setup" className="underline hover:text-amber-900">set up a Cash or Bank account first</a>.
+              <Link href="/accounts?tab=setup" className="underline hover:text-amber-900">set up a Cash or Bank account first</Link>.
             </div>
           </div>
         )}

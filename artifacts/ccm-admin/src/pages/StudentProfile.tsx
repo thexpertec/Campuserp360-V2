@@ -1,7 +1,7 @@
 import { memo, useState, useRef, useEffect } from "react";
 import { formatDate, formatCurrency } from "@/lib/locale";
 import { displayCnic, displayPhone } from "@/lib/format";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import {
   useGetAdminStudent,
   getGetAdminStudentQueryKey,
@@ -547,7 +547,7 @@ function TabBasicDetails({
           <InfoField label="Enrollment Date"  value={fmt(student.enrollmentDate)} />
           <InfoField label="Application"      value={
             student.applicationId
-              ? <a href="/admin/applications" className="text-blue-600 hover:underline flex items-center gap-1 text-xs font-mono"><ExternalLink className="h-3 w-3" />View</a>
+              ? <Link href="/applications" className="text-blue-600 hover:underline flex items-center gap-1 text-xs font-mono"><ExternalLink className="h-3 w-3" />View</Link>
               : "—"
           } />
         </div>
@@ -915,9 +915,9 @@ function TabLedger({ studentId }: { studentId: string }) {
                     <div className="text-xs text-amber-800 leading-snug">
                       <span className="font-semibold">No payment accounts configured</span>
                       {" — "}
-                      <a href="/admin/accounts?tab=setup" target="_blank" className="underline hover:text-amber-900">
+                      <Link href="/accounts?tab=setup" className="underline hover:text-amber-900">
                         set up a Cash or Bank account first
-                      </a>
+                      </Link>
                     </div>
                   </div>
                 )}

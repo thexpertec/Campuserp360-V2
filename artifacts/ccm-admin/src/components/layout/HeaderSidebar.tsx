@@ -295,6 +295,7 @@ export const NAV: NavItem[] = [
       { name: "Fee Structure",page: "fee-structure" },
       { name: "Results",      page: "results"       },
       { name: "Contact",      page: "contact"       },
+      { name: "Inquiries",    href: "/website/contact" },
       { name: "Settings",     page: "site-settings" },
       { name: "SEO",          page: "seo-visitors"  },
     ],
@@ -346,6 +347,7 @@ export const NAV: NavItem[] = [
       { name: "Fee Challan",     tab: "challan"          },
       { name: "Backup",          tab: "backup"           },
       { name: "Print & PDF",     tab: "print"            },
+      { name: "Demo Data",       tab: "seed"             },
     ],
   },
 ];
@@ -464,9 +466,11 @@ function getSubHref(sub: SubItem, active: NavItem) {
 function isSubActive(sub: SubItem, location: string, tab: string, page: string) {
   if (sub.href) {
     const base = sub.href.split("?")[0];
+    if (base === "/applications" && !tab && location === "/applications") return true;
     return location === base || (base !== "/" && location.startsWith(base));
   }
   if (sub.page) return page === sub.page;
+  if (sub.tab === "dashboard" && !tab && location === "/applications") return false;
   return tab === sub.tab;
 }
 
@@ -778,8 +782,8 @@ export function SubMenu() {
     return true;
   });
 
-  const currentTab  = params.get("tab")  ?? visibleSubs[0]?.tab  ?? "";
-  const currentPage = params.get("page") ?? visibleSubs[0]?.page ?? "";
+  const currentTab  = params.get("tab")  ?? "";
+  const currentPage = params.get("page") ?? "";
 
   if (visibleSubs.length === 0) return null;
 

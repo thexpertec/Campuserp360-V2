@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { Link } from "wouter";
 import { formatDate, formatCurrency } from "@/lib/locale";
 import { useAdminNames } from "@/components/AuditStamp";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -179,13 +180,12 @@ function AccountSelector({
     return (
       <div className="rounded-lg border border-dashed border-border bg-slate-50 px-3 py-3 text-center">
         <p className="text-xs text-slate-500">No bank or cash accounts set up yet.</p>
-        <a
-          href="/admin/accounts?tab=setup"
-          target="_blank"
+        <Link
+          href="/accounts?tab=setup"
           className="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
         >
           <ExternalLink className="h-3 w-3" /> Set up Cash & Bank accounts
-        </a>
+        </Link>
       </div>
     );
   }
@@ -611,9 +611,9 @@ export function HRPayrollTab() {
               <div className="text-xs text-amber-800 leading-snug">
                 <span className="font-semibold">No payment accounts configured</span>
                 {" — "}
-                <a href="/admin/accounts?tab=setup" target="_blank" className="underline hover:text-amber-900">
+                <Link href="/accounts?tab=setup" className="underline hover:text-amber-900">
                   set up a Cash or Bank account first
-                </a>
+                </Link>
               </div>
             </div>
           )}
@@ -670,9 +670,9 @@ export function HRPayrollTab() {
               <div className="text-xs text-amber-800 leading-snug">
                 <span className="font-semibold">No payment accounts configured</span>
                 {" — "}
-                <a href="/admin/accounts?tab=setup" target="_blank" className="underline hover:text-amber-900">
+                <Link href="/accounts?tab=setup" className="underline hover:text-amber-900">
                   set up a Cash or Bank account first
-                </a>
+                </Link>
               </div>
             </div>
           )}

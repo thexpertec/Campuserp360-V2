@@ -1,5 +1,6 @@
 import { Helmet } from "react-helmet-async";
 import { motion } from "framer-motion";
+import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import {
   Calendar, Trophy, Flag, MessageSquare, Star, FlaskConical,
@@ -231,16 +232,15 @@ export default function Events() {
             <p className="text-foreground/80 mb-6">
               <EditableText as="span" multiline page="events" blockKey="cta_body" value={blocks.cta_body || "Connect with our admissions team to learn more about upcoming events and how your cadet can be a part of the HILLIAN legacy."} />
             </p>
-            <motion.a
-              href="/contact"
-              data-testid="link-contact-from-events"
-              whileHover={{ scale: 1.04 }}
-              whileTap={{ scale: 0.97 }}
-              transition={{ type: "spring", stiffness: 300 }}
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
-            >
-              Contact Admissions
-            </motion.a>
+            <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} transition={{ type: "spring", stiffness: 300 }}>
+              <Link
+                href="/contact"
+                data-testid="link-contact-from-events"
+                className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
+              >
+                Contact Admissions
+              </Link>
+            </motion.div>
           </motion.div>
         </SectionColor>
       </div>

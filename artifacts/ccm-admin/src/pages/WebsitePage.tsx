@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { useSearch } from "wouter";
+import { useSearch, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getToken, getUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -518,7 +518,7 @@ const PAGES: PageDef[] = [
       { type: "inline", label: "Admissions Page Text", icon: LucideIcons.BookOpen,
         desc: "Intro copy, eligibility criteria, and instructions shown at the top of the Admissions page — edit directly on the live website." },
       { type: "external", label: "Classes/Programs & Test Centres", icon: LucideIcons.ClipboardList,
-        moduleLabel: "Admissions Setup", href: "/admin/applications?tab=setup",
+        moduleLabel: "Admissions Setup", href: "/applications?tab=setup",
         desc: "Available classes, seats, and test-centre locations are managed in the Admissions Setup module." },
     ],
   },
@@ -602,7 +602,7 @@ const PAGES: PageDef[] = [
     desc: "Candidate status check page shown to applicants",
     sections: [
       { type: "external", label: "Candidate Status Portal", icon: Search,
-        moduleLabel: "Candidate Portal", href: "/portal",
+        moduleLabel: "Candidate Portal", href: "__public__/portal",
         desc: "The candidate status tracker is powered by the Candidate Portal and Admissions module — manage application statuses there." },
     ],
   },
@@ -3950,6 +3950,14 @@ function InlineSectionBody({ desc }: { desc: string }) {
 }
 
 function ExternalSectionBody({ moduleLabel, href, desc }: { moduleLabel: string; href: string; desc: string }) {
+  const resolvedHref = href.startsWith("__public__/")
+    ? publicSiteUrl(href.slice("__public__/".length))
+    : href.startsWith("?")
+      ? `/website${href}`
+      : href;
+
+  const isExternalPublic = href.startsWith("__public__/");
+
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5 space-y-3">
       <div className="flex items-start gap-3">
@@ -3961,12 +3969,21 @@ function ExternalSectionBody({ moduleLabel, href, desc }: { moduleLabel: string;
           <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
         </div>
       </div>
-      <a href={href}>
-        <Button size="sm" variant="outline" className="gap-2">
-          <ExternalLink className="h-3.5 w-3.5" />
-          Go to {moduleLabel}
-        </Button>
-      </a>
+      {isExternalPublic ? (
+        <a href={resolvedHref} target="_blank" rel="noopener noreferrer">
+          <Button size="sm" variant="outline" className="gap-2">
+            <ExternalLink className="h-3.5 w-3.5" />
+            Go to {moduleLabel}
+          </Button>
+        </a>
+      ) : (
+        <Link href={resolvedHref}>
+          <Button size="sm" variant="outline" className="gap-2">
+            <ExternalLink className="h-3.5 w-3.5" />
+            Go to {moduleLabel}
+          </Button>
+        </Link>
+      )}
     </div>
   );
 }
