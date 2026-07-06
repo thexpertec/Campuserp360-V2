@@ -5554,10 +5554,11 @@ function MeritListTab() {
   const allItems = data?.items ?? [];
 
   const ranked = useMemo(() => {
-    // Compute meritScore on-the-fly when the DB value is absent.
+    // Always compute meritScore live from the same component values shown in the
+    // Academic /20, Entry Test /50 and Interview /30 columns, so the bold total is
+    // a single source of truth with the columns. A missing component counts as 0.
     // Weights match column headers: academic /20 + test /50 + interview /30 = 100.
     const withScore = allItems.map(app => {
-      if (typeof (app as any).meritScore === "number") return app;
       const academic  = parseAcademic((app as any).previousMarks) ?? 0;
       const test      = typeof app.resultMarks === "number" ? Math.round((app.resultMarks / 100) * 50 * 10) / 10 : 0;
       const interview = typeof app.interviewMarks === "number" ? app.interviewMarks : 0;
