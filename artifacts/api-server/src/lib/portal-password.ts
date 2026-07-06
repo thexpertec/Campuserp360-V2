@@ -4,6 +4,10 @@ import { hashPassword } from "./admin-auth.js";
 
 const BCRYPT_PREFIX = "$2";
 
+export function isPortalPasswordHashed(stored: string): boolean {
+  return stored.startsWith(BCRYPT_PREFIX);
+}
+
 function timingSafeEqualStr(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);

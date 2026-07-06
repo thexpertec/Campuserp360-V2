@@ -9,6 +9,7 @@
     "start": "node start-prod.mjs",
     "import:gccm": "node ./build.mjs && node --enable-source-maps ./dist/scripts/import-gccm.mjs",
     "test": "node ./run-tests.mjs",
+    "test:integration": "node ./run-integration-tests.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

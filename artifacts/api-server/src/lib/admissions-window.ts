@@ -33,7 +33,9 @@ export async function loadAdmissionsWindow(tenantId: string): Promise<Admissions
   const open =
     map[keys.open] !== undefined
       ? map[keys.open] === "true"
-      : map["admissions_open"] === "true";
+      : map["admissions_open"] !== undefined
+        ? map["admissions_open"] === "true"
+        : true;
 
   const deadline = map[keys.deadline] ?? map["admissions_deadline"] ?? null;
   const session = map[keys.session] ?? map["admissions_session"] ?? null;
