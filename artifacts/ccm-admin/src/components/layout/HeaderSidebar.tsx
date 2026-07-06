@@ -96,10 +96,10 @@ export const NAV: NavItem[] = [
     subs: [
       { name: "Dashboard",        tab: "dashboard"        },
       { name: "Schedule Exams",   tab: "schedule"         },
-      { name: "Results Entry",    tab: "results"          },
-      { name: "Report Cards",     tab: "report-cards"     },
       { name: "Master Datesheet", tab: "master-datesheet" },
       { name: "Date Sheet",       tab: "date-sheet"       },
+      { name: "Results Entry",    tab: "results"          },
+      { name: "Report Cards",     tab: "report-cards"     },
       { name: "Setup",            tab: "setup"            },
     ],
   },
