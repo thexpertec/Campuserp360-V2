@@ -1,8 +1,8 @@
-// artifacts/api-server/src/lib/tenant-resolve.test.ts
+// src/lib/tenant-resolve.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
 
-// artifacts/api-server/src/lib/admin-auth.ts
+// src/lib/admin-auth.ts
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 var ADMIN_USERNAME = process.env["ADMIN_USERNAME"] ?? "admin";
@@ -80,7 +80,7 @@ function verifyToken(token) {
   }
 }
 
-// artifacts/api-server/src/lib/tenant-resolve.ts
+// src/lib/tenant-resolve.ts
 var DEFAULT_SLUG = (process.env["DEFAULT_TENANT_SLUG"] ?? "ccm").toLowerCase();
 function normalizeHost(host) {
   return host.split(":")[0].trim().toLowerCase().replace(/^www\./, "");
@@ -154,7 +154,7 @@ function resolveTenantFromList(req, tenants) {
   return { tenant: firstActive, confident: false };
 }
 
-// artifacts/api-server/src/lib/tenant-resolve.test.ts
+// src/lib/tenant-resolve.test.ts
 var CCM = {
   id: "tenant-ccm",
   name: "Cadet College Murree",

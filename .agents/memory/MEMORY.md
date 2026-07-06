@@ -5,3 +5,4 @@
 - [CCM fee fields](ccm-fee-fields.md) — two fees: feeStatus=Application Fee (Fee Verification), admissionFeeStatus=Admission Fee; Enrollment 'App. Fee' display uses feeStatus, gate uses admissionFeeStatus.
 - [CCM payment gateways](ccm-payment-gateways.md) — online gateway needs BOTH enabled+configured to show; field-keyed 400 submit errors; regen client after spec edits.
 - [Enrolled flag vs status](enrolled-flag-vs-status.md) — enrolled = student record exists (tenant-scoped join) OR status==='enrolled'; never status alone (drift causes 409 on Enroll).
+- [CCM ID prefix pool](ccm-id-prefix-pool.md) — applicant + register ID prefixes share ONE global pool across all tenants; both stored in gr_format:{tenantId} row (candidate nested); 409s carry a field key.

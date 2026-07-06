@@ -148,8 +148,11 @@ export function IdFormatTab() {
   const [dirty, setDirty] = useState(false);
   const [previewSeed, setPreviewSeed] = useState(() => Math.random());
   const [grPrefixError, setGrPrefixError] = useState<string | null>(null);
+  const [candidatePrefixError, setCandidatePrefixError] = useState<string | null>(null);
   const [prefixAvailability, setPrefixAvailability] = useState<PrefixAvailability>("idle");
+  const [candidateAvailability, setCandidateAvailability] = useState<PrefixAvailability>("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const candidateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -158,8 +161,13 @@ export function IdFormatTab() {
           headers: { Authorization: `Bearer ${getToken() ?? ""}` },
         });
         if (res.ok) {
-          const gr = await res.json();
-          setSettings(s => ({ ...s, gr: { ...s.gr, ...gr } }));
+          const data = await res.json();
+          const { candidate, ...gr } = data;
+          setSettings(s => ({
+            ...s,
+            gr: { ...s.gr, ...gr },
+            candidate: { ...s.candidate, ...(candidate ?? {}) },
+          }));
         }
       } catch {}
       setLoading(false);
@@ -174,12 +182,16 @@ export function IdFormatTab() {
       setPrefixAvailability("idle");
       return;
     }
+    if (settings.candidate.prefix.trim().toUpperCase() === prefix.toUpperCase()) {
+      setPrefixAvailability("taken");
+      return;
+    }
     setPrefixAvailability("checking");
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await fetch(
-          `/api/admin/settings/gr-format/check-prefix?prefix=${encodeURIComponent(prefix)}`,
+          `/api/admin/settings/gr-format/check-prefix?prefix=${encodeURIComponent(prefix)}&field=gr`,
           { headers: { Authorization: `Bearer ${getToken() ?? ""}` } },
         );
         if (res.ok) {
@@ -195,10 +207,46 @@ export function IdFormatTab() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [settings.gr.prefix, loading]);
+  }, [settings.gr.prefix, settings.candidate.prefix, loading]);
+
+  // Same debounced availability check for the Candidate Applicant ID prefix
+  useEffect(() => {
+    if (loading) return;
+    const prefix = settings.candidate.prefix.trim();
+    if (!prefix) {
+      setCandidateAvailability("idle");
+      return;
+    }
+    if (settings.gr.prefix.trim().toUpperCase() === prefix.toUpperCase()) {
+      setCandidateAvailability("taken");
+      return;
+    }
+    setCandidateAvailability("checking");
+    if (candidateDebounceRef.current) clearTimeout(candidateDebounceRef.current);
+    candidateDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/settings/gr-format/check-prefix?prefix=${encodeURIComponent(prefix)}&field=candidate`,
+          { headers: { Authorization: `Bearer ${getToken() ?? ""}` } },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setCandidateAvailability(data.available ? "available" : "taken");
+        } else {
+          setCandidateAvailability("idle");
+        }
+      } catch {
+        setCandidateAvailability("idle");
+      }
+    }, 500);
+    return () => {
+      if (candidateDebounceRef.current) clearTimeout(candidateDebounceRef.current);
+    };
+  }, [settings.candidate.prefix, settings.gr.prefix, loading]);
 
   function setCandidate<K extends keyof CandidateIdFormat>(key: K, value: CandidateIdFormat[K]) {
     setSettings((s) => ({ ...s, candidate: { ...s.candidate, [key]: value } }));
+    if (key === "prefix") setCandidatePrefixError(null);
     setDirty(true);
   }
 
@@ -219,23 +267,38 @@ export function IdFormatTab() {
       toast({ title: "Validation error", description: "Register ID prefix is required.", variant: "destructive" });
       return;
     }
+    if (cp.toUpperCase() === gp.toUpperCase()) {
+      setCandidatePrefixError("Applicant ID prefix cannot be the same as the Register ID prefix.");
+      toast({ title: "Validation error", description: "Applicant ID and Register ID prefixes must be different.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/admin/settings/gr-format", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken() ?? ""}` },
-        body: JSON.stringify({ ...settings.gr, prefix: gp }),
+        body: JSON.stringify({
+          ...settings.gr,
+          prefix: gp,
+          candidate: { ...settings.candidate, prefix: cp },
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         if (res.status === 409) {
-          setGrPrefixError(err.error ?? "This prefix is already used by another tenant.");
+          const msg = err.error ?? "This prefix is already in use.";
+          if (err.field === "candidate") {
+            setCandidatePrefixError(msg);
+          } else {
+            setGrPrefixError(msg);
+          }
         }
         toast({ title: "Save failed", description: err.error ?? "Please try again.", variant: "destructive" });
         return;
       }
       setDirty(false);
       setGrPrefixError(null);
+      setCandidatePrefixError(null);
       toast({ title: "ID format saved", description: "New IDs will follow this format going forward." });
     } catch {
       toast({ title: "Save failed", description: "Could not reach the server. Please try again.", variant: "destructive" });
@@ -279,14 +342,38 @@ export function IdFormatTab() {
       {/* ── Candidate Applicant ID ─────────────────────── */}
       <Section title="Candidate Applicant ID" icon={Hash} color="bg-violet-100 text-violet-700">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Prefix" hint="Short code prepended to every ID (max 10 chars).">
+          <Field label="Prefix" hint="Short code prepended to every ID (max 10 chars). Must be unique across all tenants.">
             <Input
               value={settings.candidate.prefix}
               maxLength={10}
               onChange={(e) => setCandidate("prefix", e.target.value.toUpperCase())}
               placeholder="CCM"
-              className="uppercase"
+              className={`uppercase ${candidatePrefixError ? "border-destructive focus-visible:ring-destructive" : ""}`}
             />
+            {candidatePrefixError && (
+              <p className="flex items-center gap-1 text-xs text-destructive mt-1">
+                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                {candidatePrefixError}
+              </p>
+            )}
+            {!candidatePrefixError && candidateAvailability === "checking" && (
+              <p className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                Checking availability…
+              </p>
+            )}
+            {!candidatePrefixError && candidateAvailability === "available" && (
+              <p className="flex items-center gap-1 text-xs text-emerald-600 mt-1">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                Available
+              </p>
+            )}
+            {!candidatePrefixError && candidateAvailability === "taken" && (
+              <p className="flex items-center gap-1 text-xs text-destructive mt-1">
+                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                Already taken
+              </p>
+            )}
           </Field>
 
           <Field label="Separator" hint="Character between segments.">
@@ -398,7 +485,7 @@ export function IdFormatTab() {
             {!grPrefixError && prefixAvailability === "taken" && (
               <p className="flex items-center gap-1 text-xs text-destructive mt-1">
                 <XCircle className="h-3.5 w-3.5 shrink-0" />
-                Already taken by another tenant
+                Already taken
               </p>
             )}
           </Field>

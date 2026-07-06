@@ -1,13 +1,13 @@
-// artifacts/api-server/src/routes/menu-location.test.ts
+// src/routes/menu-location.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
 
-// artifacts/api-server/src/lib/menu-location.ts
+// src/lib/menu-location.ts
 function normalizeMenuLocation(raw) {
   return raw?.trim() === "footer" ? "footer" : "header";
 }
 
-// artifacts/api-server/src/routes/menu-location.test.ts
+// src/routes/menu-location.test.ts
 test("explicit footer is preserved", () => {
   assert.equal(normalizeMenuLocation("footer"), "footer");
 });

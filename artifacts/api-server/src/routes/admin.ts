@@ -5797,6 +5797,54 @@ const DEFAULT_GR_FORMAT = {
   startingNumber: "1",
 };
 
+const DEFAULT_CANDIDATE_FORMAT = {
+  prefix: "CCM",
+  separator: "-",
+  includeYear: true,
+  suffixStyle: "random",
+  suffixLength: "6",
+};
+
+// Builds the global prefix pool from every tenant's saved ID-format row.
+// Each entry covers BOTH the register (gr) prefix and the candidate prefix.
+type PrefixPoolEntry = { tenantId: string; field: "gr" | "candidate"; prefix: string };
+
+async function loadPrefixPool(): Promise<PrefixPoolEntry[]> {
+  const allRows = await db
+    .select({ key: admissionsSettingsTable.key, value: admissionsSettingsTable.value })
+    .from(admissionsSettingsTable)
+    .where(sql`${admissionsSettingsTable.key} LIKE ${"gr_format:%"}`);
+
+  const pool: PrefixPoolEntry[] = [];
+  for (const row of allRows) {
+    const rowTenantId = row.key.replace("gr_format:", "");
+    try {
+      const fmt = JSON.parse(row.value);
+      const grPrefix = String(fmt.prefix ?? "").trim().toUpperCase();
+      if (grPrefix) pool.push({ tenantId: rowTenantId, field: "gr", prefix: grPrefix });
+      const candPrefix = String(fmt.candidate?.prefix ?? "").trim().toUpperCase();
+      if (candPrefix) pool.push({ tenantId: rowTenantId, field: "candidate", prefix: candPrefix });
+    } catch {}
+  }
+  return pool;
+}
+
+// Finds a conflicting entry for `prefix` being saved as `field` by `tenantId`.
+// Conflicts: same code used by ANY prefix in ANY other tenant, or by the
+// sibling field within the same tenant.
+function findPrefixConflict(
+  pool: PrefixPoolEntry[],
+  tenantId: string,
+  field: "gr" | "candidate",
+  prefix: string,
+): PrefixPoolEntry | undefined {
+  return pool.find(
+    (e) =>
+      e.prefix === prefix &&
+      !(e.tenantId === tenantId && e.field === field),
+  );
+}
+
 router.get("/admin/settings/gr-format", requireAdmin, async (req: Request, res: Response) => {
   try {
     const tenantId = requireTenant(req, res);
@@ -5806,11 +5854,17 @@ router.get("/admin/settings/gr-format", requireAdmin, async (req: Request, res: 
       .from(admissionsSettingsTable)
       .where(eq(admissionsSettingsTable.key, `gr_format:${tenantId}`))
       .limit(1);
-    if (!row) return res.json(DEFAULT_GR_FORMAT);
+    if (!row) return res.json({ ...DEFAULT_GR_FORMAT, candidate: DEFAULT_CANDIDATE_FORMAT });
     try {
-      return res.json({ ...DEFAULT_GR_FORMAT, ...JSON.parse(row.value) });
+      const parsed = JSON.parse(row.value);
+      const { candidate, ...gr } = parsed;
+      return res.json({
+        ...DEFAULT_GR_FORMAT,
+        ...gr,
+        candidate: { ...DEFAULT_CANDIDATE_FORMAT, ...(candidate ?? {}) },
+      });
     } catch {
-      return res.json(DEFAULT_GR_FORMAT);
+      return res.json({ ...DEFAULT_GR_FORMAT, candidate: DEFAULT_CANDIDATE_FORMAT });
     }
   } catch (err) {
     req.log.error({ err }, "GR format fetch failed");
@@ -5825,21 +5879,13 @@ router.get("/admin/settings/gr-format/check-prefix", requireAdmin, async (req: R
     const raw = typeof req.query["prefix"] === "string" ? req.query["prefix"] : "";
     const prefix = raw.trim().toUpperCase();
     if (!prefix) return res.status(400).json({ error: "prefix query param is required" });
+    const fieldRaw = typeof req.query["field"] === "string" ? req.query["field"] : "gr";
+    const field: "gr" | "candidate" = fieldRaw === "candidate" ? "candidate" : "gr";
 
-    const allRows = await db
-      .select({ key: admissionsSettingsTable.key, value: admissionsSettingsTable.value })
-      .from(admissionsSettingsTable)
-      .where(sql`${admissionsSettingsTable.key} LIKE ${"gr_format:%"}`);
-
-    for (const row of allRows) {
-      const rowTenantId = row.key.replace("gr_format:", "");
-      if (rowTenantId === tenantId) continue;
-      try {
-        const fmt = JSON.parse(row.value);
-        if (String(fmt.prefix ?? "").toUpperCase() === prefix) {
-          return res.json({ available: false, conflict: true });
-        }
-      } catch {}
+    const pool = await loadPrefixPool();
+    const conflict = findPrefixConflict(pool, tenantId, field, prefix);
+    if (conflict) {
+      return res.json({ available: false, conflict: true });
     }
     return res.json({ available: true });
   } catch (err) {
@@ -5853,33 +5899,80 @@ router.put("/admin/settings/gr-format", requireAdmin, async (req: Request, res: 
     const tenantId = requireTenant(req, res);
     if (!tenantId) return;
 
-    const { prefix, separator, includeYear, paddingDigits, startingNumber } = req.body as {
+    const { prefix, separator, includeYear, paddingDigits, startingNumber, candidate } = req.body as {
       prefix?: string; separator?: string; includeYear?: boolean;
       paddingDigits?: string; startingNumber?: string;
+      candidate?: {
+        prefix?: string; separator?: string; includeYear?: boolean;
+        suffixStyle?: string; suffixLength?: string;
+      };
     };
 
     const cleanPrefix = (typeof prefix === "string" ? prefix : "GR").trim().toUpperCase();
     if (!cleanPrefix) return res.status(400).json({ error: "prefix is required" });
 
-    // Enforce GR prefix uniqueness across all tenants so same-format Applicant IDs
-    // never collide (students.applicant_id has a global unique index).
-    const allRows = await db
-      .select({ key: admissionsSettingsTable.key, value: admissionsSettingsTable.value })
+    // Load the tenant's existing row so the candidate format is preserved when
+    // an older client saves without it (backward compatibility).
+    const [existingRow] = await db
+      .select({ value: admissionsSettingsTable.value })
       .from(admissionsSettingsTable)
-      .where(sql`${admissionsSettingsTable.key} LIKE ${"gr_format:%"}`);
-
-    for (const row of allRows) {
-      const rowTenantId = row.key.replace("gr_format:", "");
-      if (rowTenantId === tenantId) continue;
+      .where(eq(admissionsSettingsTable.key, `gr_format:${tenantId}`))
+      .limit(1);
+    let existingCandidate: Record<string, unknown> | undefined;
+    if (existingRow) {
       try {
-        const fmt = JSON.parse(row.value);
-        if (String(fmt.prefix ?? "").toUpperCase() === cleanPrefix) {
-          return res.status(409).json({
-            error: `GR prefix "${cleanPrefix}" is already used by another tenant. Choose a unique prefix.`,
-          });
-        }
+        existingCandidate = JSON.parse(existingRow.value)?.candidate;
       } catch {}
     }
+
+    const candidateProvided = candidate !== undefined;
+    const cleanCandidatePrefix = candidateProvided
+      ? String(candidate?.prefix ?? "").trim().toUpperCase()
+      : String(existingCandidate?.["prefix"] ?? "").trim().toUpperCase();
+    if (candidateProvided && !cleanCandidatePrefix) {
+      return res.status(400).json({ error: "candidate prefix is required", field: "candidate" });
+    }
+
+    // Within a tenant the two prefixes must not collide with each other.
+    if (cleanCandidatePrefix && cleanCandidatePrefix === cleanPrefix) {
+      return res.status(409).json({
+        error: `Prefix "${cleanPrefix}" cannot be used for both the Applicant ID and the Register ID. Choose different codes.`,
+        field: "candidate",
+      });
+    }
+
+    // Enforce prefix uniqueness across one global pool: BOTH the applicant and
+    // register prefixes of ALL tenants (students.applicant_id has a global
+    // unique index, and the college wants each code owned by exactly one place).
+    const pool = await loadPrefixPool();
+
+    const grConflict = findPrefixConflict(pool, tenantId, "gr", cleanPrefix);
+    if (grConflict) {
+      return res.status(409).json({
+        error: `Register ID prefix "${cleanPrefix}" is already in use${grConflict.tenantId === tenantId ? "" : " by another tenant"}. Choose a unique prefix.`,
+        field: "gr",
+      });
+    }
+
+    if (cleanCandidatePrefix) {
+      const candConflict = findPrefixConflict(pool, tenantId, "candidate", cleanCandidatePrefix);
+      if (candConflict) {
+        return res.status(409).json({
+          error: `Applicant ID prefix "${cleanCandidatePrefix}" is already in use${candConflict.tenantId === tenantId ? "" : " by another tenant"}. Choose a unique prefix.`,
+          field: "candidate",
+        });
+      }
+    }
+
+    const candidateValue = candidateProvided
+      ? {
+          prefix: cleanCandidatePrefix,
+          separator: candidate?.separator ?? "-",
+          includeYear: candidate?.includeYear !== false,
+          suffixStyle: candidate?.suffixStyle ?? "random",
+          suffixLength: candidate?.suffixLength ?? "6",
+        }
+      : existingCandidate;
 
     const value = JSON.stringify({
       prefix: cleanPrefix,
@@ -5887,6 +5980,7 @@ router.put("/admin/settings/gr-format", requireAdmin, async (req: Request, res: 
       includeYear: includeYear !== false,
       paddingDigits: paddingDigits ?? "3",
       startingNumber: startingNumber ?? "1",
+      ...(candidateValue ? { candidate: candidateValue } : {}),
     });
 
     await db
