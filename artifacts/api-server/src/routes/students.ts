@@ -28,6 +28,7 @@ import { requireAdmin } from "../lib/admin-auth";
 import { resolveUrl } from "../lib/storage";
 import { checkAcademicSetup, academicSetupErrorMessage } from "../lib/academic-setup";
 import { syncStudentCoa } from "../lib/coa-sync";
+import { allocateRegisterIds, RegisterIdError, type DbClient } from "../lib/register-id.js";
 
 const router: IRouter = Router();
 
@@ -127,6 +128,131 @@ function serializeStudent(s: typeof studentsTable.$inferSelect) {
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
   };
+}
+
+type StudentCreateBody = {
+  applicantId: string;
+  rollNo?: string | null;
+  applicationId?: string | null;
+  fullName: string;
+  dateOfBirth?: string | null;
+  bloodGroup?: string | null;
+  religion?: string | null;
+  nationality?: string;
+  photoFilename?: string | null;
+  mobile?: string | null;
+  email?: string | null;
+  address?: string | null;
+  city?: string | null;
+  province?: string | null;
+  fatherName?: string | null;
+  guardianName?: string | null;
+  relation?: string | null;
+  occupation?: string | null;
+  guardianMobile?: string | null;
+  guardianCnic?: string | null;
+  guardianId?: string | null;
+  classCode: string;
+  sectionId?: string | null;
+  houseId?: string | null;
+  academicYearId?: string | null;
+  enrollmentDate?: string | null;
+  status?: string;
+};
+
+async function insertStudentRecord(
+  tx: DbClient,
+  tenantId: string,
+  b: StudentCreateBody,
+): Promise<typeof studentsTable.$inferSelect> {
+  const applicationId: string | null = b.applicationId ?? null;
+  let resolvedSectionId: string | null = b.sectionId ?? null;
+  let resolvedAcademicYearId: string | null = b.academicYearId ?? null;
+
+  if (applicationId && (!resolvedSectionId || !resolvedAcademicYearId)) {
+    const [alloc] = await tx
+      .select({
+        sectionId: sectionAllocationsTable.sectionId,
+        academicYearId: sectionAllocationsTable.academicYearId,
+      })
+      .from(sectionAllocationsTable)
+      .where(eq(sectionAllocationsTable.applicationId, applicationId))
+      .limit(1);
+    if (alloc) {
+      if (!resolvedSectionId) resolvedSectionId = alloc.sectionId ?? null;
+      if (!resolvedAcademicYearId) resolvedAcademicYearId = alloc.academicYearId ?? null;
+    }
+  }
+
+  const [student] = await tx
+    .insert(studentsTable)
+    .values({
+      applicantId: String(b.applicantId).trim(),
+      rollNo: b.rollNo?.trim() ?? null,
+      applicationId,
+      fullName: String(b.fullName).trim(),
+      dateOfBirth: b.dateOfBirth?.trim() ?? null,
+      bloodGroup: b.bloodGroup?.trim() ?? null,
+      religion: b.religion?.trim() ?? null,
+      nationality: b.nationality?.trim() ?? "Pakistani",
+      photoFilename: b.photoFilename ?? null,
+      mobile: b.mobile ?? null,
+      email: b.email?.trim() ?? null,
+      address: b.address?.trim() ?? null,
+      city: b.city?.trim() ?? null,
+      province: b.province?.trim() ?? null,
+      fatherName: b.fatherName?.trim() ?? null,
+      guardianName: b.guardianName?.trim() ?? null,
+      relation: b.relation?.trim() ?? null,
+      occupation: b.occupation?.trim() ?? null,
+      guardianMobile: b.guardianMobile ?? null,
+      guardianCnic: b.guardianCnic ?? null,
+      guardianId: b.guardianId ?? null,
+      classCode: String(b.classCode).trim(),
+      sectionId: resolvedSectionId,
+      houseId: b.houseId ?? null,
+      academicYearId: resolvedAcademicYearId,
+      enrollmentDate: b.enrollmentDate?.trim() ?? null,
+      status: b.status?.trim() ?? "active",
+      tenantId,
+    })
+    .returning();
+
+  if (applicationId) {
+    const appWhere = and(
+      eq(applicationsTable.id, applicationId),
+      eq(applicationsTable.tenantId, tenantId),
+    );
+    const updated = await tx
+      .update(applicationsTable)
+      .set({ status: "enrolled" })
+      .where(appWhere)
+      .returning({ id: applicationsTable.id });
+    if (updated.length > 0) {
+      await tx.insert(applicationEventsTable).values({
+        applicationId,
+        eventType: "enrolled",
+        title: "Cadet Enrolled",
+        description: `Enrolled as student ${student.applicantId} (Applicant ID).`,
+        occurredAt: new Date(),
+      });
+    }
+  }
+
+  await tx
+    .insert(studentEnrollmentsTable)
+    .values({
+      studentId: student.id,
+      academicYearId: student.academicYearId ?? null,
+      classCode: student.classCode,
+      sectionId: student.sectionId ?? null,
+      houseId: student.houseId ?? null,
+      startDate: student.enrollmentDate ?? new Date().toISOString().slice(0, 10),
+      status: "active",
+    })
+    .onConflictDoNothing();
+
+  return student;
 }
 
 // ── GET /admin/students — paginated list ─────────────────────────────────────
@@ -451,84 +577,37 @@ router.post("/admin/students", requireAdmin, async (req: Request, res: Response)
       }
     }
 
-    const created = await db.transaction(async (tx) => {
-      const [student] = await tx
-        .insert(studentsTable)
-        .values({
-          applicantId:      String(b.applicantId).trim(),
-          rollNo:        b.rollNo?.trim() ?? null,
-          applicationId,
-          fullName:      String(b.fullName).trim(),
-          dateOfBirth:   b.dateOfBirth?.trim() ?? null,
-          bloodGroup:    b.bloodGroup?.trim() ?? null,
-          religion:      b.religion?.trim() ?? null,
-          nationality:   b.nationality?.trim() ?? "Pakistani",
-          photoFilename: b.photoFilename ?? null,
-          mobile:        rawMobile ? canonicalizePhone(rawMobile) : null,
-          email:         b.email?.trim() ?? null,
-          address:       b.address?.trim() ?? null,
-          city:          b.city?.trim() ?? null,
-          province:      b.province?.trim() ?? null,
-          fatherName:    b.fatherName?.trim() ?? null,
-          guardianName:  b.guardianName?.trim() ?? null,
-          relation:      b.relation?.trim() ?? null,
-          occupation:    b.occupation?.trim() ?? null,
-          guardianMobile: rawGuardianMobile ? canonicalizePhone(rawGuardianMobile) : null,
-          guardianCnic:  cnic,
-          guardianId:    autoGuardianId,
-          classCode:     String(b.classCode).trim(),
-          sectionId:     resolvedSectionId,
-          houseId:       b.houseId ?? null,
-          academicYearId: resolvedAcademicYearId,
-          enrollmentDate: b.enrollmentDate?.trim() ?? null,
-          status:        b.status?.trim() ?? "active",
-          tenantId,
-        })
-        .returning();
-
-      // Sync the linked application to `enrolled` and record the event so the
-      // admission pipeline stays consistent whether enrollment happens via the
-      // dedicated enroll endpoint or this direct student-create path.
-      if (applicationId) {
-        const appWhere = tenantId
-          ? and(eq(applicationsTable.id, applicationId), eq(applicationsTable.tenantId, tenantId))
-          : eq(applicationsTable.id, applicationId);
-        // Use .returning() so we can verify the application was actually found
-        // under this tenant before writing the audit event — guards against
-        // cross-tenant event injection via a crafted applicationId.
-        const updated = await tx
-          .update(applicationsTable)
-          .set({ status: "enrolled" })
-          .where(appWhere)
-          .returning({ id: applicationsTable.id });
-        if (updated.length > 0) {
-          await tx.insert(applicationEventsTable).values({
-            applicationId,
-            eventType:   "enrolled",
-            title:       "Cadet Enrolled",
-            description: `Enrolled as student ${student.applicantId} (Applicant ID).`,
-            occurredAt:  new Date(),
-          });
-        }
-      }
-
-      // Create initial enrollment row for academic year history tracking.
-      // ON CONFLICT DO NOTHING so re-running the enroll endpoint is safe.
-      await tx
-        .insert(studentEnrollmentsTable)
-        .values({
-          studentId:      student.id,
-          academicYearId: student.academicYearId ?? null,
-          classCode:      student.classCode,
-          sectionId:      student.sectionId ?? null,
-          houseId:        student.houseId ?? null,
-          startDate:      student.enrollmentDate ?? new Date().toISOString().slice(0, 10),
-          status:         "active",
-        })
-        .onConflictDoNothing();
-
-      return student;
-    });
+    const created = await db.transaction(async (tx) =>
+      insertStudentRecord(tx, tenantId, {
+        applicantId: String(b.applicantId).trim(),
+        rollNo: b.rollNo?.trim() ?? null,
+        applicationId,
+        fullName: String(b.fullName).trim(),
+        dateOfBirth: b.dateOfBirth?.trim() ?? null,
+        bloodGroup: b.bloodGroup?.trim() ?? null,
+        religion: b.religion?.trim() ?? null,
+        nationality: b.nationality?.trim() ?? "Pakistani",
+        photoFilename: b.photoFilename ?? null,
+        mobile: rawMobile ? canonicalizePhone(rawMobile) : null,
+        email: b.email?.trim() ?? null,
+        address: b.address?.trim() ?? null,
+        city: b.city?.trim() ?? null,
+        province: b.province?.trim() ?? null,
+        fatherName: b.fatherName?.trim() ?? null,
+        guardianName: b.guardianName?.trim() ?? null,
+        relation: b.relation?.trim() ?? null,
+        occupation: b.occupation?.trim() ?? null,
+        guardianMobile: rawGuardianMobile ? canonicalizePhone(rawGuardianMobile) : null,
+        guardianCnic: cnic,
+        guardianId: autoGuardianId,
+        classCode: String(b.classCode).trim(),
+        sectionId: resolvedSectionId,
+        houseId: b.houseId ?? null,
+        academicYearId: resolvedAcademicYearId,
+        enrollmentDate: b.enrollmentDate?.trim() ?? null,
+        status: b.status?.trim() ?? "active",
+      }),
+    );
 
     // Fire-and-forget: create fee-receivable COA sub-ledger for this student.
     void syncStudentCoa(
@@ -542,6 +621,123 @@ router.post("/admin/students", requireAdmin, async (req: Request, res: Response)
       return res.status(409).json({ error: "A student with this Applicant ID already exists" });
     req.log.error({ err }, "Failed to create student");
     return res.status(500).json({ error: "Failed to create student" });
+  }
+});
+
+// ── POST /admin/students/bulk-enroll ─────────────────────────────────────────
+// Atomically allocates unique Register IDs and creates multiple students in one
+// transaction — safe under concurrent enrollment requests.
+
+router.post("/admin/students/bulk-enroll", requireAdmin, async (req: Request, res: Response) => {
+  const body = req.body as {
+    classCode?: string;
+    sectionId?: string;
+    houseId?: string;
+    academicYearId?: string;
+    enrollmentDate?: string;
+    status?: string;
+    students?: Array<{
+      fullName?: string;
+      fatherName?: string;
+      guardianId?: string;
+      mobile?: string;
+      dateOfBirth?: string;
+      bloodGroup?: string;
+      applicationId?: string;
+    }>;
+  };
+
+  const classCode = body.classCode?.trim() ?? "";
+  const rawStudents = Array.isArray(body.students) ? body.students : [];
+
+  if (!classCode) {
+    return res.status(400).json({ error: "classCode is required" });
+  }
+  if (!rawStudents.length) {
+    return res.status(400).json({ error: "At least one student row is required" });
+  }
+
+  try {
+    const tenantId = requireTenant(req, res);
+    if (!tenantId) return;
+
+    const setup = await checkAcademicSetup(tenantId);
+    if (!setup.complete) {
+      return res.status(400).json({ error: academicSetupErrorMessage(setup.missing) });
+    }
+
+    const prepared: StudentCreateBody[] = [];
+    for (let i = 0; i < rawStudents.length; i++) {
+      const row = rawStudents[i]!;
+      const fullName = row.fullName?.trim() ?? "";
+      if (!fullName) {
+        return res.status(400).json({ error: `Row ${i + 1}: fullName is required` });
+      }
+
+      const rawMobile = row.mobile?.trim() ?? null;
+      if (rawMobile) {
+        const c = canonicalizePhone(rawMobile);
+        if (!c) {
+          return res.status(400).json({
+            error: `Row ${i + 1}: mobile must be exactly 11 digits — format: 0XXX-XXXXXXX`,
+          });
+        }
+      }
+
+      prepared.push({
+        applicantId: "",
+        fullName,
+        fatherName: row.fatherName?.trim() || undefined,
+        guardianId: row.guardianId?.trim() || undefined,
+        mobile: rawMobile ? canonicalizePhone(rawMobile) : null,
+        dateOfBirth: row.dateOfBirth?.trim() || undefined,
+        bloodGroup: row.bloodGroup?.trim() || undefined,
+        applicationId: row.applicationId?.trim() || undefined,
+        classCode,
+        sectionId: body.sectionId ?? null,
+        houseId: body.houseId ?? null,
+        academicYearId: body.academicYearId ?? null,
+        enrollmentDate: body.enrollmentDate?.trim() ?? null,
+        status: body.status?.trim() ?? "active",
+      });
+    }
+
+    const created = await db.transaction(async (tx) => {
+      const applicantIds = await allocateRegisterIds(tx, tenantId, prepared.length);
+      const rows: (typeof studentsTable.$inferSelect)[] = [];
+      for (let i = 0; i < prepared.length; i++) {
+        const student = await insertStudentRecord(tx, tenantId, {
+          ...prepared[i]!,
+          applicantId: applicantIds[i]!,
+        });
+        rows.push(student);
+      }
+      return rows;
+    });
+
+    for (const student of created) {
+      void syncStudentCoa(
+        { id: student.id, fullName: student.fullName, applicantId: student.applicantId },
+        tenantId,
+      );
+    }
+
+    return res.status(201).json({
+      items: created.map(serializeStudent),
+      count: created.length,
+    });
+  } catch (err) {
+    if (err instanceof RegisterIdError) {
+      return res.status(err.code === "GR_FORMAT_NOT_CONFIGURED" ? 400 : 409).json({
+        error: err.message,
+        code: err.code,
+      });
+    }
+    if (isUniqueViolation(err)) {
+      return res.status(409).json({ error: "A student with this Register ID already exists" });
+    }
+    req.log.error({ err }, "Failed to bulk-enroll students");
+    return res.status(500).json({ error: "Failed to enroll students" });
   }
 });
 

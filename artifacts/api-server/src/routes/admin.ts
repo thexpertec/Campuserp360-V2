@@ -8,6 +8,7 @@ import { resolveUrl } from "../lib/storage";
 import { seedAllData } from "../lib/seed-data";
 import { canonicalizeCnic, canonicalizePhone } from "../lib/format-utils.js";
 import { checkAcademicSetup, academicSetupErrorMessage } from "../lib/academic-setup";
+import { peekNextRegisterIds, RegisterIdError } from "../lib/register-id.js";
 import {
   DEFAULT_GR_FORMAT, DEFAULT_CANDIDATE_FORMAT, PREFIX_FIELD_LABELS,
   loadPrefixPool, findPrefixConflict, type PrefixPoolEntry,
@@ -2391,109 +2392,51 @@ router.get("/admin/students/next-gr", requireAdmin, async (req: Request, res: Re
   try {
     const tenantId = requireTenant(req, res);
     if (!tenantId) return;
-    const year = new Date().getFullYear();
 
-    // Load the persisted GR format — this MUST exist before any Applicant ID
-    // can be generated.  Query params can supplement format values but they
-    // can never bypass the "format configured" gate.
-    const [fmtRow] = await db
-      .select({ value: admissionsSettingsTable.value })
-      .from(admissionsSettingsTable)
-      .where(eq(admissionsSettingsTable.key, `gr_format:${tenantId}`))
-      .limit(1);
-
-    // Hard gate: DB row must exist regardless of what query params the caller passes.
-    if (!fmtRow) {
-      return res.status(400).json({
-        error: "Applicant ID format is not configured for this tenant. Go to Settings → ID Format and set a prefix before generating Applicant IDs.",
-        code: "GR_FORMAT_NOT_CONFIGURED",
-      });
-    }
-
-    let dbFmt: { prefix?: string; separator?: string; includeYear?: boolean; paddingDigits?: string } = {};
-    try { dbFmt = JSON.parse(fmtRow.value); } catch {}
-
-    // Query params are allowed to override individual format values (e.g. for
-    // previewing a new format in the settings UI) but the DB row must exist.
-    const prefix = (typeof req.query.prefix === "string" && req.query.prefix.trim()
-      ? req.query.prefix.trim()
-      : null) ?? (typeof dbFmt.prefix === "string" && dbFmt.prefix.trim() ? dbFmt.prefix.trim() : "GR");
-
-    const sep = (typeof req.query.separator === "string" ? req.query.separator : null)
-      ?? (typeof dbFmt.separator === "string" ? dbFmt.separator : "-");
-    const includeYear = req.query.includeYear !== undefined
-      ? req.query.includeYear !== "false"
-      : (dbFmt.includeYear !== false);
-    const padding = (typeof req.query.paddingDigits === "string" ? (parseInt(req.query.paddingDigits) || null) : null)
-      ?? (dbFmt.paddingDigits ? (parseInt(dbFmt.paddingDigits) || 3) : 3);
-
-    // How many consecutive verified Applicant IDs to return (capped at 100).
     const count = Math.min(Math.max(parseInt(String(req.query.count ?? "1")) || 1, 1), 100);
 
-    const seqPosition = includeYear ? 3 : 2;
-
-    let likePattern: string;
-    if (includeYear) {
-      likePattern = `${prefix}${sep}${year}${sep}%`;
-    } else {
-      likePattern = `${prefix}${sep}%`;
+    let formatOverride: Partial<import("../lib/register-id.js").GrFormat> | undefined;
+    if (
+      typeof req.query.prefix === "string" ||
+      typeof req.query.separator === "string" ||
+      req.query.includeYear !== undefined ||
+      typeof req.query.paddingDigits === "string"
+    ) {
+      formatOverride = {
+        ...(typeof req.query.prefix === "string" && req.query.prefix.trim()
+          ? { prefix: req.query.prefix.trim() }
+          : {}),
+        ...(typeof req.query.separator === "string"
+          ? { separator: req.query.separator }
+          : {}),
+        ...(req.query.includeYear !== undefined
+          ? { includeYear: req.query.includeYear !== "false" }
+          : {}),
+        ...(typeof req.query.paddingDigits === "string"
+          ? { padding: parseInt(req.query.paddingDigits, 10) || 3 }
+          : {}),
+      };
     }
 
-    // applicant_id is unique per (tenant_id, applicant_id) — scope all checks
-    // to the current tenant so each tenant has its own independent sequence.
-    const [row] = await db
-      .select({
-        maxSeq: sql<number | null>`COALESCE(MAX(CAST(SPLIT_PART(${studentsTable.applicantId}, ${sep}, ${seqPosition}) AS INTEGER)), 0)`,
-      })
-      .from(studentsTable)
-      .where(and(
-        sql`${studentsTable.applicantId} LIKE ${likePattern}`,
-        eq(studentsTable.tenantId, tenantId),
-      ));
+    const { applicantIds, nextSequence } = await peekNextRegisterIds(
+      db,
+      tenantId,
+      count,
+      formatOverride,
+    );
 
-    let seq = (row?.maxSeq ?? 0) + 1;
-
-    const buildGr = (s: number): string => {
-      const parts = [prefix!];
-      if (includeYear) parts.push(String(year));
-      parts.push(String(s).padStart(padding, "0"));
-      return parts.join(sep);
-    };
-
-    // Always return server-verified Applicant IDs (skipping gaps and manual entries).
-    const applicantIds: string[] = [];
-    let firstSeq: number | null = null;
-    let attempt = 0;
-    const maxAttempts = count * 10 + 200;
-
-    while (applicantIds.length < count && attempt < maxAttempts) {
-      attempt++;
-      const candidate = buildGr(seq);
-      const [existing] = await db
-        .select({ id: studentsTable.id })
-        .from(studentsTable)
-        .where(and(eq(studentsTable.applicantId, candidate), eq(studentsTable.tenantId, tenantId)))
-        .limit(1);
-      if (!existing) {
-        if (firstSeq === null) firstSeq = seq;
-        applicantIds.push(candidate);
-      }
-      seq++;
-    }
-
-    if (applicantIds.length < count) {
-      return res.status(409).json({
-        error: `Could not find ${count} available Applicant ID(s) after ${maxAttempts} attempts. Please check existing Applicant IDs.`,
-      });
-    }
-
-    // Backward-compat: single-GR callers still get nextSequence + nextGr.
     return res.json({
       nextApplicantId: applicantIds[0],
-      nextSequence: firstSeq,   // first sequence number used (backward compat)
-      applicantIds,                // full verified list (length === count)
+      nextSequence,
+      applicantIds,
     });
   } catch (err) {
+    if (err instanceof RegisterIdError) {
+      return res.status(err.code === "GR_FORMAT_NOT_CONFIGURED" ? 400 : 409).json({
+        error: err.message,
+        code: err.code,
+      });
+    }
     req.log.error({ err }, "Failed to get next GR sequence");
     return res.status(500).json({ error: "Failed to compute next Applicant ID" });
   }
