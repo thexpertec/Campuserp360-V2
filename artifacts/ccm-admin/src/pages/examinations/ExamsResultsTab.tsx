@@ -44,9 +44,30 @@ function fmtDate(s?: string | null) {
 }
 
 function resolveGrade(obtained: number | null, total: number, bands: GradeBand[]): GradeBand | null {
-  if (obtained === null || !bands.length) return null;
+  if (obtained === null || !bands.length || total <= 0) return null;
   const pct = Math.round((obtained / total) * 100);
   return bands.find(b => pct >= b.minPercent && pct <= b.maxPercent) ?? null;
+}
+
+/** Returns a user-facing error when marks are out of range; null when valid or not applicable. */
+function getMarksValidationError(
+  obtained: number | null,
+  isAbsent: boolean,
+  totalMarks: number,
+): string | null {
+  if (isAbsent || obtained === null) return null;
+  if (!Number.isFinite(obtained) || !Number.isInteger(obtained)) {
+    return "Marks must be a whole number.";
+  }
+  if (obtained < 0) return "Marks cannot be less than 0.";
+  if (obtained > totalMarks) {
+    return `Marks cannot exceed the total marks (${totalMarks}).`;
+  }
+  return null;
+}
+
+function rowHasValidMarks(row: ResultRow, totalMarks: number): boolean {
+  return getMarksValidationError(row.obtainedMarks, row.isAbsent, totalMarks) === null;
 }
 
 export function ExamsResultsTab() {
@@ -83,8 +104,16 @@ export function ExamsResultsTab() {
   }, [scheduleData]);
 
   const saveMut = useMutation({
-    mutationFn: () =>
-      apiFetch(`/api/admin/exams/schedules/${selectedId}/results/bulk`, {
+    mutationFn: () => {
+      if (!schedule) throw new Error("No exam selected");
+      const invalid = rows
+        .map((r) => ({ row: r, error: getMarksValidationError(r.obtainedMarks, r.isAbsent, schedule.totalMarks) }))
+        .filter((x) => x.error);
+      if (invalid.length > 0) {
+        const first = invalid[0]!;
+        throw new Error(`${first.row.studentName}: ${first.error}`);
+      }
+      return apiFetch(`/api/admin/exams/schedules/${selectedId}/results/bulk`, {
         method: "POST",
         body: JSON.stringify({
           rows: rows.map(r => ({
@@ -94,7 +123,8 @@ export function ExamsResultsTab() {
             remarks: r.remarks,
           })),
         }),
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["exam-schedule-results", selectedId] });
       setDirty(false);
@@ -103,11 +133,29 @@ export function ExamsResultsTab() {
     onError: (e: Error) => toast({ variant: "destructive", title: "Save failed", description: e.message }),
   });
 
-  // Auto-save on blur after a brief debounce
+  // Auto-save on blur after a brief debounce (skipped while any marks are invalid)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   function scheduleSave() {
+    if (!schedule || rows.some((r) => !rowHasValidMarks(r, schedule.totalMarks))) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => saveMut.mutate(), 1500);
+  }
+
+  function handleMarksChange(realIdx: number, raw: string) {
+    if (!schedule) return;
+    if (raw === "") {
+      updateRow(realIdx, "obtainedMarks", null);
+      return;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    const rounded = Math.round(n);
+    const error = getMarksValidationError(rounded, false, schedule.totalMarks);
+    if (error) {
+      toast({ variant: "destructive", title: "Invalid marks", description: error });
+      return;
+    }
+    updateRow(realIdx, "obtainedMarks", rounded);
   }
 
   function updateRow(idx: number, key: keyof ResultRow, val: any) {
@@ -153,11 +201,16 @@ export function ExamsResultsTab() {
 
   const schedule = selectedId !== "__none__" ? schedules.find(s => s.id === selectedId) : null;
   const filtered = rows.filter(r => !search || r.studentName.toLowerCase().includes(search.toLowerCase()) || r.applicantId.includes(search));
+  const hasInvalidMarks = schedule
+    ? rows.some((r) => !rowHasValidMarks(r, schedule.totalMarks))
+    : false;
 
   const entered = rows.filter(r => !r.isAbsent && r.obtainedMarks !== null).length;
   const absent  = rows.filter(r => r.isAbsent).length;
   const pending = rows.length - entered - absent;
-  const passing = schedule ? rows.filter(r => !r.isAbsent && (r.obtainedMarks ?? 0) >= schedule.passMarks).length : 0;
+  const passing = schedule
+    ? rows.filter(r => !r.isAbsent && rowHasValidMarks(r, schedule.totalMarks) && (r.obtainedMarks ?? 0) >= schedule.passMarks).length
+    : 0;
   const progress = rows.length > 0 ? Math.round(((entered + absent) / rows.length) * 100) : 0;
 
   return (
@@ -275,8 +328,14 @@ export function ExamsResultsTab() {
             <Button variant="outline" size="sm" onClick={markAllAbsent} className="h-8 text-red-600 border-red-200 hover:bg-red-50">Mark All Absent</Button>
             <Button
               size="sm" className="h-8 ml-auto"
-              disabled={!dirty || saveMut.isPending || schedule?.resultsStatus === "published"}
-              title={schedule?.resultsStatus === "published" ? "Published results cannot be modified" : undefined}
+              disabled={!dirty || saveMut.isPending || hasInvalidMarks || schedule?.resultsStatus === "published"}
+              title={
+                schedule?.resultsStatus === "published"
+                  ? "Published results cannot be modified"
+                  : hasInvalidMarks
+                    ? "Correct invalid marks before saving"
+                    : undefined
+              }
               onClick={() => saveMut.mutate()}
             >
               <Save className="mr-1.5 h-3.5 w-3.5" />
@@ -311,8 +370,15 @@ export function ExamsResultsTab() {
                   <tr><td colSpan={8} className="px-3 py-10 text-center text-sm text-slate-400">No students found</td></tr>
                 ) : filtered.map((row, visIdx) => {
                   const realIdx = rows.indexOf(row);
-                  const grade = schedule ? resolveGrade(row.obtainedMarks, schedule.totalMarks, bands) : null;
-                  const isPassing = schedule && !row.isAbsent && row.obtainedMarks !== null && row.obtainedMarks >= schedule.passMarks;
+                  const marksError = schedule
+                    ? getMarksValidationError(row.obtainedMarks, row.isAbsent, schedule.totalMarks)
+                    : null;
+                  const marksValid = row.isAbsent || (row.obtainedMarks !== null && !marksError);
+                  const grade = schedule && marksValid && row.obtainedMarks !== null
+                    ? resolveGrade(row.obtainedMarks, schedule.totalMarks, bands)
+                    : null;
+                  const isPassing = schedule && marksValid && !row.isAbsent && row.obtainedMarks !== null
+                    && row.obtainedMarks >= schedule.passMarks;
                   return (
                     <tr key={row.studentId} className={cn("transition-colors", row.isAbsent ? "bg-red-50/40" : "hover:bg-muted/20")}>
                       <td className="px-3 py-2 text-xs text-slate-400 tabular-nums">{visIdx + 1}</td>
@@ -331,27 +397,33 @@ export function ExamsResultsTab() {
                         />
                       </td>
                       <td className="px-2 py-1.5 text-center">
-                        <input
-                          ref={el => { marksRefs.current[visIdx] = el; }}
-                          type="number"
-                          min={0}
-                          max={schedule?.totalMarks ?? 100}
-                          disabled={row.isAbsent}
-                          value={row.obtainedMarks ?? ""}
-                          onChange={e => {
-                            updateRow(realIdx, "obtainedMarks", e.target.value === "" ? null : Number(e.target.value));
-                          }}
-                          onBlur={() => dirty && scheduleSave()}
-                          onKeyDown={e => handleMarksKey(e, visIdx)}
-                          className={cn(
-                            "w-20 h-8 text-center rounded border text-sm font-semibold tabular-nums transition-colors",
-                            "border-border bg-background focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400",
-                            row.isAbsent && "opacity-25 bg-slate-100 cursor-not-allowed",
-                            !row.isAbsent && row.obtainedMarks !== null && isPassing  && "border-green-300 bg-green-50 text-green-800",
-                            !row.isAbsent && row.obtainedMarks !== null && !isPassing && "border-red-300 bg-red-50 text-red-700",
+                        <div className="inline-flex flex-col items-center gap-0.5">
+                          <input
+                            ref={el => { marksRefs.current[visIdx] = el; }}
+                            type="number"
+                            min={0}
+                            max={schedule?.totalMarks ?? 100}
+                            step={1}
+                            disabled={row.isAbsent}
+                            value={row.obtainedMarks ?? ""}
+                            onChange={e => handleMarksChange(realIdx, e.target.value)}
+                            onBlur={() => dirty && !hasInvalidMarks && scheduleSave()}
+                            onKeyDown={e => handleMarksKey(e, visIdx)}
+                            aria-invalid={!!marksError}
+                            className={cn(
+                              "w-20 h-8 text-center rounded border text-sm font-semibold tabular-nums transition-colors",
+                              "border-border bg-background focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400",
+                              row.isAbsent && "opacity-25 bg-slate-100 cursor-not-allowed",
+                              marksError && "border-amber-400 bg-amber-50 text-amber-900 focus:ring-amber-300",
+                              !row.isAbsent && !marksError && row.obtainedMarks !== null && isPassing && "border-green-300 bg-green-50 text-green-800",
+                              !row.isAbsent && !marksError && row.obtainedMarks !== null && !isPassing && "border-red-300 bg-red-50 text-red-700",
+                            )}
+                            placeholder="—"
+                          />
+                          {marksError && (
+                            <span className="text-[10px] text-amber-700 max-w-[9rem] leading-tight">{marksError}</span>
                           )}
-                          placeholder="—"
-                        />
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-center">
                         {row.isAbsent ? (
@@ -400,7 +472,7 @@ export function ExamsResultsTab() {
 
           {dirty && (
             <div className="flex justify-end">
-              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} size="sm">
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || hasInvalidMarks} size="sm">
                 <Save className="mr-1.5 h-4 w-4" />
                 {saveMut.isPending ? "Saving…" : "Save All Results"}
               </Button>
