@@ -166,7 +166,7 @@ const GUIDES: Record<string, GuideConfig> = {
     overview: "Create exam series, enter results, calculate grades and generate report cards and DMCs.",
     steps: [
       { title: "Create Exam Series", description: "Define an exam series (Mid-Term, Final, etc.) with start and end dates." },
-      { title: "Schedule Exams", description: "Set individual paper dates and times per subject and class." },
+      { title: "Build the Master Datesheet", description: "Plan all classes' paper dates on one grid under the Master Datesheet tab, then save." },
       { title: "Print Admit Cards", description: "Generate and print admit cards for candidates via the Printing module." },
       { title: "Enter Results", description: "Teachers enter marks per student per subject under the Result Entry tab." },
       { title: "Calculate Grades", description: "The system auto-computes grade, percentage and rank once all marks are entered." },

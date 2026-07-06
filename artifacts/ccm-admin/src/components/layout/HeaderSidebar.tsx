@@ -95,7 +95,6 @@ export const NAV: NavItem[] = [
     matchPaths: ["/examinations"],
     subs: [
       { name: "Dashboard",        tab: "dashboard"        },
-      { name: "Schedule Exams",   tab: "schedule"         },
       { name: "Master Datesheet", tab: "master-datesheet" },
       { name: "Date Sheet",       tab: "date-sheet"       },
       { name: "Results Entry",    tab: "results"          },

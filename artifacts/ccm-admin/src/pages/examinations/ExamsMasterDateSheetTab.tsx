@@ -15,6 +15,10 @@ import {
 } from "lucide-react";
 import { ClassRecord, AcademicYear, SessionSelect } from "./ExamSelectors";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
@@ -216,6 +220,12 @@ export function ExamsMasterDateSheetTab() {
   const [saving, setSaving]   = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // ── Saved-datesheet protection
+  const [savedExists, setSavedExists]       = useState(false); // a saved datesheet exists for this selection
+  const [dirty, setDirty]                   = useState(false); // local changes not yet saved
+  const [confirmShuffle, setConfirmShuffle] = useState(false);
+  const [confirmSave, setConfirmSave]       = useState(false);
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   // ── Data fetching
@@ -270,6 +280,11 @@ export function ExamsMasterDateSheetTab() {
 
       // A newer load started while this one was in flight — discard this result.
       if (version !== buildVersion.current) return;
+
+      // Does a saved datesheet already exist for this exam type + session?
+      const anySaved = perClass.some(pc => pc.schedules.length > 0);
+      setSavedExists(anySaved);
+      setDirty(false);
 
       // Distinct saved dates (sorted) become the initial columns
       const dateSet = new Set<string>();
@@ -361,14 +376,17 @@ export function ExamsMasterDateSheetTab() {
   // ── Column ops
   function setColumnDate(idx: number, date: string) {
     setColumns(cs => cs.map((c, i) => i === idx ? { ...c, date } : c));
+    setDirty(true);
   }
   function addColumn() {
     setColumns(cs => [...cs, newCol("")]);
     setGrid(g => Object.fromEntries(Object.entries(g).map(([k, row]) => [k, [...row, null]])));
+    setDirty(true);
   }
   function removeColumn(idx: number) {
     setColumns(cs => cs.filter((_, i) => i !== idx));
     setGrid(g => Object.fromEntries(Object.entries(g).map(([k, row]) => [k, row.filter((_, i) => i !== idx)])));
+    setDirty(true);
   }
   const columnEmpty = (idx: number) => !Object.values(grid).some(row => row[idx]);
 
@@ -387,10 +405,17 @@ export function ExamsMasterDateSheetTab() {
       [row[from.col], row[to.col]] = [row[to.col], row[from.col]];
       return { ...g, [from.classCode]: row };
     });
+    setDirty(true);
   }
 
   // ── Shuffle: random permutation of each class's subjects across its occupied cells
   function handleShuffle() {
+    // Protect an already-saved datesheet: ask before rearranging it.
+    if (savedExists) { setConfirmShuffle(true); return; }
+    doShuffle();
+  }
+  function doShuffle() {
+    setDirty(true);
     setGrid(g => {
       const next: GridState = {};
       for (const [cc, row] of Object.entries(g)) {
@@ -411,7 +436,7 @@ export function ExamsMasterDateSheetTab() {
   );
 
   // ── Save the whole grid (one request per class — rows differ per class)
-  async function handleSave() {
+  function handleSave() {
     if (!session)         { toast({ variant: "destructive", title: "Select a session." }); return; }
     if (placedCount === 0){ toast({ variant: "destructive", title: "Nothing to save." });  return; }
     if (datelessCount > 0){
@@ -422,6 +447,12 @@ export function ExamsMasterDateSheetTab() {
       });
       return;
     }
+    // Overwriting a saved datesheet requires explicit confirmation.
+    if (savedExists) { setConfirmSave(true); return; }
+    void doSave();
+  }
+  async function doSave() {
+    if (datelessCount > 0) return; // re-checked defensively; handleSave already validated
 
     setSaving(true);
     try {
@@ -469,6 +500,8 @@ export function ExamsMasterDateSheetTab() {
       });
       qc.invalidateQueries({ queryKey: ["exam-schedules"] });
       qc.invalidateQueries({ queryKey: ["exam-schedules-datesheet"] });
+      setSavedExists(true);
+      setDirty(false);
     } catch (e: any) {
       toast({ variant: "destructive", title: "Save failed", description: e.message });
     } finally {
@@ -650,6 +683,11 @@ export function ExamsMasterDateSheetTab() {
         <div className="px-4 py-2.5 border-t border-border bg-muted/10 flex items-center gap-3 text-xs text-muted-foreground">
           <span>Drag a subject onto another cell in the same row to swap. The last empty column is spare space.</span>
           <span className="flex-1" />
+          {dirty && (
+            <span className="text-amber-600 font-medium flex items-center gap-1">
+              Unsaved changes — the saved datesheet stays untouched until you Save
+            </span>
+          )}
           {datelessCount > 0 && (
             <span className="text-amber-600 font-medium">
               {datelessCount} subject{datelessCount !== 1 ? "s" : ""} in a column without a date
@@ -660,6 +698,9 @@ export function ExamsMasterDateSheetTab() {
 
       {/* ── Action buttons ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-end gap-2">
+        {dirty && (
+          <span className="text-xs text-amber-600 font-medium mr-1">Unsaved changes</span>
+        )}
         <Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrint} disabled={placedCount === 0}>
           <Printer className="h-3.5 w-3.5" /> Print
         </Button>
@@ -674,6 +715,52 @@ export function ExamsMasterDateSheetTab() {
             : <><Save className="h-3.5 w-3.5" /> Save Datesheet</>}
         </Button>
       </div>
+
+      {/* ── Shuffle confirmation (saved datesheet exists) ─────────────────── */}
+      <AlertDialog open={confirmShuffle} onOpenChange={setConfirmShuffle}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reshuffle the saved datesheet?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A datesheet is already saved for this exam type and session. Shuffling will randomly
+              rearrange the subjects on screen. Your saved datesheet stays safe until you press
+              <strong> Save Datesheet</strong> — but once you save, the previous arrangement will be replaced.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-violet-600 hover:bg-violet-700"
+              onClick={() => { setConfirmShuffle(false); doShuffle(); }}
+            >
+              Yes, shuffle
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Save/overwrite confirmation (saved datesheet exists) ──────────── */}
+      <AlertDialog open={confirmSave} onOpenChange={setConfirmSave}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Overwrite the saved datesheet?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A datesheet is already saved for this exam type and session. Saving now will replace it
+              with the arrangement currently on screen. The class-wise Date Sheet page will update to
+              match. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-violet-600 hover:bg-violet-700"
+              onClick={() => { setConfirmSave(false); void doSave(); }}
+            >
+              Yes, overwrite &amp; save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

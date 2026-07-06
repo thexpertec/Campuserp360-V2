@@ -68,7 +68,6 @@ export function ExamsDashboard() {
   const classMax = Math.max(1, ...classEntries.map(([,v]) => v));
 
   const quickLinks = [
-    { icon: CalendarDays,  label: "Schedule Exams",  sub: "Create exam sittings by class & subject", tab: "schedule"     },
     { icon: BarChart3,     label: "Results Entry",   sub: "Enter marks for a scheduled exam",         tab: "results"      },
     { icon: FileText,      label: "Report Cards",    sub: "View & print class report cards",          tab: "report-cards" },
     { icon: LayoutGrid,    label: "Master Datesheet",sub: "Classwise datesheet across multiple classes", tab: "master-datesheet" },

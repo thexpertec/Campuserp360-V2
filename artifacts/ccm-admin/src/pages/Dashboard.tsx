@@ -1312,7 +1312,7 @@ function AcademicsView() {
     { title: "Enrolled Cadets", value: data?.totalStudents ?? 0,  sub: "Active cadets",   icon: Users,         grad: "from-blue-500 to-indigo-600",   href: "/students"                   },
     { title: "Active Classes/Programs",  value: data?.totalClasses ?? 0,   sub: "Class/Program streams",   icon: GraduationCap, grad: "from-violet-500 to-purple-600", href: "/academic"                   },
     { title: "Subjects",        value: data?.totalSubjects ?? 0,  sub: "In catalogue",    icon: BookOpen,      grad: "from-teal-500 to-emerald-600",  href: "/academic?tab=setup"         },
-    { title: "Exam Sittings",   value: data?.totalSchedules ?? 0, sub: "All sessions",    icon: ClipboardList, grad: "from-amber-500 to-orange-600",  href: "/examinations?tab=schedule"  },
+    { title: "Exam Sittings",   value: data?.totalSchedules ?? 0, sub: "All sessions",    icon: ClipboardList, grad: "from-amber-500 to-orange-600",  href: "/examinations?tab=date-sheet"  },
   ];
 
   const spClass      = data?.studentsPerClass ?? [];
@@ -1437,7 +1437,7 @@ function AcademicsView() {
                 </CardTitle>
                 <CardDescription className="text-xs font-medium">Sittings with a scheduled date, ordered by date</CardDescription>
               </div>
-              <Link href="/examinations?tab=schedule">
+              <Link href="/examinations?tab=date-sheet">
                 <button className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
                   All Schedules <ArrowUpRight className="h-3.5 w-3.5" />
                 </button>
@@ -1453,14 +1453,14 @@ function AcademicsView() {
               <div className="py-10 text-center">
                 <Calendar className="h-10 w-10 mx-auto mb-2 text-slate-200" />
                 <p className="text-sm text-slate-400">No upcoming exams with a set date.</p>
-                <Link href="/examinations?tab=schedule">
-                  <button className="mt-2 text-xs font-semibold text-indigo-600 hover:text-indigo-800">Schedule exams →</button>
+                <Link href="/examinations?tab=master-datesheet">
+                  <button className="mt-2 text-xs font-semibold text-indigo-600 hover:text-indigo-800">Build the datesheet →</button>
                 </Link>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {upcomingExams.map((ex) => (
-                  <Link key={ex.id} href="/examinations?tab=schedule">
+                  <Link key={ex.id} href="/examinations?tab=date-sheet">
                     <div className="flex items-center gap-3 rounded-xl border border-slate-100 p-3 hover:border-violet-200 hover:bg-violet-50/30 transition-colors cursor-pointer">
                       <ExamDateChip dateStr={ex.examDate} />
                       <div className="min-w-0">

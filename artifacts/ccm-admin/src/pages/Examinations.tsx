@@ -1,18 +1,16 @@
 import { useSearch } from "wouter";
 import { ExamsDashboard } from "./examinations/ExamsDashboard";
 import { ExamsSetupTab } from "./examinations/ExamsSetupTab";
-import { ExamsScheduleTab } from "./examinations/ExamsScheduleTab";
 import { ExamsResultsTab } from "./examinations/ExamsResultsTab";
 import { ExamsReportCardTab } from "./examinations/ExamsReportCardTab";
 import { ExamsDateSheetTab } from "./examinations/ExamsDateSheetTab";
 import { ExamsMasterDateSheetTab } from "./examinations/ExamsMasterDateSheetTab";
 import {
-  LayoutDashboard, CalendarDays, BarChart3, FileText, Settings2, CalendarRange, LayoutGrid,
+  LayoutDashboard, BarChart3, FileText, Settings2, CalendarRange, LayoutGrid,
 } from "lucide-react";
 
 const TABS = [
   { key: "dashboard",       label: "Dashboard",        icon: LayoutDashboard },
-  { key: "schedule",        label: "Schedule",          icon: CalendarDays    },
   { key: "master-datesheet",label: "Master Datesheet",  icon: LayoutGrid      },
   { key: "date-sheet",      label: "Date Sheet",        icon: CalendarRange   },
   { key: "results",         label: "Results Entry",     icon: BarChart3       },
@@ -24,7 +22,6 @@ type TabKey = typeof TABS[number]["key"];
 
 const TAB_SUBTITLE: Record<TabKey, string> = {
   dashboard:           "Overview of exam schedules, upcoming sittings and grade scale.",
-  schedule:            "Create and manage exam sittings by class, subject and exam type.",
   "master-datesheet":  "Plan the whole datesheet on one grid — all classes, drag & drop subjects, shuffle combinations.",
   results:             "Select an exam and enter marks for each student in the class.",
   "report-cards":      "View class results, rankings and print individual report cards.",
@@ -34,7 +31,9 @@ const TAB_SUBTITLE: Record<TabKey, string> = {
 
 export default function Examinations() {
   const search = useSearch();
-  const raw    = new URLSearchParams(search).get("tab") ?? "dashboard";
+  const rawParam = new URLSearchParams(search).get("tab") ?? "dashboard";
+  // The old "Schedule Exams" tab was removed — send its old links to the Master Datesheet.
+  const raw    = rawParam === "schedule" ? "master-datesheet" : rawParam;
   const tab    = TABS.some(t => t.key === raw) ? (raw as TabKey) : "dashboard";
 
   return (
@@ -45,7 +44,6 @@ export default function Examinations() {
       </div>
 
       {tab === "dashboard"        && <ExamsDashboard />}
-      {tab === "schedule"         && <ExamsScheduleTab />}
       {tab === "master-datesheet" && <ExamsMasterDateSheetTab />}
       {tab === "results"          && <ExamsResultsTab />}
       {tab === "report-cards"     && <ExamsReportCardTab />}
