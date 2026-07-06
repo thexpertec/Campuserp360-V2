@@ -159,27 +159,32 @@ function redirectToPortal(
 async function markPaid(
   txn: typeof paymentTransactionsTable.$inferSelect,
   gatewayTxnId: string,
-): Promise<void> {
+): Promise<boolean> {
   const feeType = txn.feeType as FeeType;
-  await db
+  const [updated] = await db
     .update(paymentTransactionsTable)
     .set({
       status: "paid",
       gatewayTxnId,
       paidAt: new Date(),
     })
-    .where(eq(paymentTransactionsTable.id, txn.id));
+    .where(and(
+      eq(paymentTransactionsTable.id, txn.id),
+      eq(paymentTransactionsTable.status, "initiated"),
+    ))
+    .returning({ id: paymentTransactionsTable.id });
+  if (!updated) return false;
 
   const [app] = await db
     .select()
     .from(applicationsTable)
     .where(eq(applicationsTable.id, txn.applicationId))
     .limit(1);
-  if (!app) return;
+  if (!app) return false;
 
   const ref = gatewayTxnId || txn.txnRef;
   if (feeType === "application") {
-    if (app.feeStatus === "paid") return;
+    if (app.feeStatus === "paid") return true;
     await db
       .update(applicationsTable)
       .set({
@@ -211,7 +216,7 @@ async function markPaid(
       });
     }
   } else {
-    if (app.admissionFeeStatus === "paid") return;
+    if (app.admissionFeeStatus === "paid") return true;
     await db
       .update(applicationsTable)
       .set({
@@ -227,6 +232,7 @@ async function markPaid(
       description: `Paid via ${txn.gateway === "jazzcash" ? "JazzCash" : "PayFast"}. Transaction: ${ref}.`,
     });
   }
+  return true;
 }
 
 async function recordFailure(

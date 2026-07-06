@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { db } from "@workspace/db";
-import { requireAdmin } from "../lib/admin-auth";
+import { requireAdmin, requireSuperAdmin } from "../lib/admin-auth";
 import { logger } from "../lib/logger";
 import { sql } from "drizzle-orm";
 
@@ -113,7 +113,7 @@ function pruneOldBackups(keepCount = 7) {
 }
 
 // ── POST /api/admin/backup/run ─────────────────────────────────────────────────
-router.post("/admin/backup/run", requireAdmin, async (_req: Request, res: Response) => {
+router.post("/admin/backup/run", requireSuperAdmin, async (_req: Request, res: Response) => {
   try {
     ensureDir();
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -155,7 +155,7 @@ router.post("/admin/backup/run", requireAdmin, async (_req: Request, res: Respon
 });
 
 // ── GET /api/admin/backup/list ─────────────────────────────────────────────────
-router.get("/admin/backup/list", requireAdmin, (_req: Request, res: Response) => {
+router.get("/admin/backup/list", requireSuperAdmin, (_req: Request, res: Response) => {
   try {
     return res.json(listBackups());
   } catch (err) {
@@ -165,7 +165,7 @@ router.get("/admin/backup/list", requireAdmin, (_req: Request, res: Response) =>
 });
 
 // ── GET /api/admin/backup/download/:filename ───────────────────────────────────
-router.get("/admin/backup/download/:filename", requireAdmin, (req: Request, res: Response) => {
+router.get("/admin/backup/download/:filename", requireSuperAdmin, (req: Request, res: Response) => {
   try {
     const { filename } = req.params as Record<string, string>;
     if (!filename || !/^ccm-backup-[\w-]+\.json$/.test(filename)) {
@@ -183,7 +183,7 @@ router.get("/admin/backup/download/:filename", requireAdmin, (req: Request, res:
 });
 
 // ── DELETE /api/admin/backup/:filename ─────────────────────────────────────────
-router.delete("/admin/backup/:filename", requireAdmin, (req: Request, res: Response) => {
+router.delete("/admin/backup/:filename", requireSuperAdmin, (req: Request, res: Response) => {
   try {
     const { filename } = req.params as Record<string, string>;
     if (!filename || !/^ccm-backup-[\w-]+\.json$/.test(filename)) {

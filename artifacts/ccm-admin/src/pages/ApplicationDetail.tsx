@@ -684,15 +684,25 @@ function LifecycleActions({
     return m;
   }, [yearsData, classesData, sectionsData, housesData]);
 
-  // Soft warnings shown in the enroll dialog — staff can proceed despite these.
-  const softWarnings = useMemo(() => {
+  // Soft warnings — academic setup only; fee/test gaps are hard blocks server-side.
+  const setupWarnings = useMemo(() => {
     const w: string[] = [];
     for (const item of missingSetup) w.push(`Academic setup incomplete: ${item} not configured`);
+    return w;
+  }, [missingSetup]);
+
+  const enrollBlockers = useMemo(() => {
+    const w: string[] = [];
     if (admissionFeeStatus && admissionFeeStatus !== "paid") w.push("Admission fee not yet verified");
     if (testDate && resultMarks == null) w.push("Written test result not recorded");
     if (interviewDate && interviewMarks == null) w.push("Interview result not recorded");
     return w;
-  }, [missingSetup, admissionFeeStatus, testDate, resultMarks, interviewDate, interviewMarks]);
+  }, [admissionFeeStatus, testDate, resultMarks, interviewDate, interviewMarks]);
+
+  const softWarnings = useMemo(
+    () => [...setupWarnings, ...enrollBlockers],
+    [setupWarnings, enrollBlockers],
+  );
 
   const refreshAfterChange = () => {
     queryClient.invalidateQueries({ queryKey: getGetAdminApplicationQueryKey(referenceId) });
@@ -787,7 +797,7 @@ function LifecycleActions({
                       placeholder="e.g. GR-2026-001"
                       value={applicantId}
                       onChange={e => setGrNumber(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && applicantId.trim() && enrollMutation.mutate({ referenceId, data: { applicantId: applicantId.trim(), enrollmentDate: enrollmentDate || undefined, force: softWarnings.length > 0, classCode: enrollClass || undefined, sectionId: enrollSection || undefined } })}
+                      onKeyDown={e => e.key === "Enter" && applicantId.trim() && enrollMutation.mutate({ referenceId, data: { applicantId: applicantId.trim(), enrollmentDate: enrollmentDate || undefined, force: setupWarnings.length > 0, classCode: enrollClass || undefined, sectionId: enrollSection || undefined } })}
                     />
                     <Button
                       type="button" variant="outline" size="sm" className="shrink-0 gap-1.5 px-3"
@@ -882,11 +892,11 @@ function LifecycleActions({
                 </DialogClose>
                 <Button
                   className="bg-teal-600 hover:bg-teal-700"
-                  onClick={() => enrollMutation.mutate({ referenceId, data: { applicantId: applicantId.trim(), enrollmentDate: enrollmentDate || undefined, force: softWarnings.length > 0, classCode: enrollClass || undefined, sectionId: enrollSection || undefined } })}
+                  onClick={() => enrollMutation.mutate({ referenceId, data: { applicantId: applicantId.trim(), enrollmentDate: enrollmentDate || undefined, force: setupWarnings.length > 0, classCode: enrollClass || undefined, sectionId: enrollSection || undefined } })}
                   disabled={enrollMutation.isPending || !applicantId.trim() || !enrollClass.trim()}
                 >
                   {enrollMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GraduationCap className="mr-2 h-4 w-4" />}
-                  {softWarnings.length > 0 ? "Enroll Anyway" : "Enroll Cadet"}
+                  {setupWarnings.length > 0 ? "Enroll Anyway" : "Enroll Cadet"}
                 </Button>
               </DialogFooter>
             </DialogContent>

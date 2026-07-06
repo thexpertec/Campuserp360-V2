@@ -22,14 +22,14 @@ function looksLikeHtml(s: string): boolean {
   return /<[a-z][a-z0-9]*[\s/>]/i.test(s);
 }
 
-/** Sanitise HTML for save: strip <script> / <style> / on* attributes.
- *  The admin is authenticated, but defence-in-depth is cheap. */
+/** Sanitise HTML for save: strip scripts/styles, event handlers, and javascript: URLs. */
 function sanitise(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/\s+on\w+="[^"]*"/gi, "")
-    .replace(/\s+on\w+='[^']*'/gi, "")
+    .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\b(href|src)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, "")
+    .replace(/<\s*(iframe|object|embed|form|meta|link|base)\b[^>]*>/gi, "")
     .trim();
 }
 

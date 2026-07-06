@@ -128,7 +128,7 @@ router.post("/admin/login", loginLimiter, async (req: Request, res: Response) =>
       username:     tenantUser.username,
       name:         tenantUser.fullName,
       role:         tenantUser.role,
-      isSuperAdmin: tenantUser.role === "super_admin",
+      isSuperAdmin: false,
       tenantId:     tenantUser.tenantId,
       roles:        [] as { module: string; permission: string }[],
     };
@@ -698,7 +698,7 @@ router.get("/admin/approvals/count", requireAdmin, async (req: Request, res: Res
 // Allows a settings-checker to view and update module roles for staff users
 // without needing full super-admin access.
 
-router.get("/admin/staff/roles", requireRole("settings", "post"), async (req: Request, res: Response) => {
+router.get("/admin/staff/roles", requireGlobalRole("settings", "post"), async (req: Request, res: Response) => {
   try {
     const users = await db
       .select({
@@ -728,7 +728,7 @@ router.get("/admin/staff/roles", requireRole("settings", "post"), async (req: Re
   }
 });
 
-router.put("/admin/staff/:userId/roles", requireRole("settings", "post"), async (req: Request, res: Response) => {
+router.put("/admin/staff/:userId/roles", requireGlobalRole("settings", "post"), async (req: Request, res: Response) => {
   try {
     const userId = String(req.params.userId);
     const { roles } = req.body ?? {};
