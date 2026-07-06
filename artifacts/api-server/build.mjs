@@ -15,7 +15,10 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    entryPoints: [
+      path.resolve(artifactDir, "src/index.ts"),
+      path.resolve(artifactDir, "src/scripts/import-gccm.ts"),
+    ],
     platform: "node",
     bundle: true,
     format: "esm",
@@ -29,6 +32,11 @@ async function buildAll() {
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
       "*.node",
+      // pdfkit (and its dep fontkit) read sibling data files (e.g. AFM font
+      // metrics, brotli tables) relative to their own __dirname. Bundling
+      // breaks those paths, so load them from node_modules instead.
+      "pdfkit",
+      "fontkit",
       "sharp",
       "better-sqlite3",
       "sqlite3",
@@ -101,7 +109,7 @@ async function buildAll() {
       "puppeteer-core",
       "electron",
     ],
-    sourcemap: "linked",
+    sourcemap: process.env.SOURCEMAP === "true" ? "linked" : false,
     plugins: [
       // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
       esbuildPluginPino({ transports: ["pino-pretty"] })

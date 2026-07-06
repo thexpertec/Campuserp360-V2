@@ -1,0 +1,4 @@
+ALTER TABLE "applications" ADD COLUMN "test_centre_id" uuid;--> statement-breakpoint
+ALTER TABLE "applications" ADD COLUMN "interview_venue_id" uuid;--> statement-breakpoint
+ALTER TABLE "applications" ADD CONSTRAINT "applications_test_centre_id_test_centres_id_fk" FOREIGN KEY ("test_centre_id") REFERENCES "public"."test_centres"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "applications" ADD CONSTRAINT "applications_interview_venue_id_test_centres_id_fk" FOREIGN KEY ("interview_venue_id") REFERENCES "public"."test_centres"("id") ON DELETE set null ON UPDATE no action;

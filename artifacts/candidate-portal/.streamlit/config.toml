@@ -1,0 +1,13 @@
+[server]
+port = 8000
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+baseUrlPath = "/portal"
+
+[theme]
+primaryColor = "#064A1A"
+backgroundColor = "#faf7ee"
+secondaryBackgroundColor = "#f0ebe0"
+textColor = "#1a1a1a"
+font = "sans serif"

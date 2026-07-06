@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
+    <title>Cadet College Murree | Proud to be HILLIANS — Admissions Open 2026-27</title>
+    <meta name="description" content="Cadet College Murree — a premier military educational institution in the Murree Hills, Pakistan. Founded 2002. Admissions open for Classes 6-11 for 2026-27. Apply now." />
+    <meta name="robots" content="index, follow" />
+    <meta name="keywords" content="Cadet College Murree, CCM, Hillians, Military College Pakistan, Murree School, Cadet Admission Pakistan, FSc Admission Murree" />
+    <meta name="author" content="Cadet College Murree" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Cadet College Murree | Proud to be HILLIANS" />
+    <meta property="og:description" content="A premier military educational institution in the Murree Hills, Pakistan. Admissions open 2026-27 for Classes 6-11 (Pre-Medical, Pre-Engineering, ICS)." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://cadetcollegemurree.edu.pk/" />
+    <meta property="og:site_name" content="Cadet College Murree" />
+    <meta property="og:locale" content="en_PK" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Cadet College Murree | Proud to be HILLIANS" />
+    <meta name="twitter:description" content="Premier military educational institution in Murree Hills. Admissions open for 2026-27." />
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://cadetcollegemurree.edu.pk/" />
+
+    <!-- Preconnect for Google Fonts performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://images.unsplash.com" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="%BASE_URL%logo.png" />
+    <link rel="apple-touch-icon" href="%BASE_URL%logo.png" />
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "EducationalOrganization",
+      "name": "Cadet College Murree",
+      "alternateName": "CCM",
+      "url": "https://cadetcollegemurree.edu.pk/",
+      "description": "Cadet College Murree is an independent military educational institution established in August 2002, following the military traditions and customs of the Pakistan Army. Located in the scenic Murree Hills, offering classes from 6th to 11th.",
+      "foundingDate": "2002",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Main Company Baag - Burgraan Road",
+        "addressLocality": "Murree",
+        "addressRegion": "Punjab",
+        "addressCountry": "PK"
+      },
+      "telephone": "+92-304-1111024",
+      "email": "burdiwaheed@gmail.com",
+      "hasOfferCatalog": {
+        "@type": "OfferCatalog",
+        "name": "Academic Programmes",
+        "itemListElement": [
+          {"@type": "Offer", "itemOffered": {"@type": "Course", "name": "Classes 6th to 9th"}},
+          {"@type": "Offer", "itemOffered": {"@type": "Course", "name": "Class 11th Pre-Medical"}},
+          {"@type": "Offer", "itemOffered": {"@type": "Course", "name": "Class 11th Pre-Engineering"}},
+          {"@type": "Offer", "itemOffered": {"@type": "Course", "name": "Class 11th ICS"}}
+        ]
+      }
+    }
+    </script>
+    <!-- Inline theme bootstrap: runs synchronously before first paint so the
+         correct data-theme is set before CSS variables are evaluated.
+         Without this, :root defaults to the CCM theme for every tenant.
+
+         Resolution order:
+           1. ?theme= preview override (admin preview iframe).
+           2. URL path slug that is itself a theme name (e.g. /gccm/).
+           3. The theme cached in localStorage on the previous visit — this
+              covers domain-based tenants whose URL carries no slug prefix,
+              eliminating the flash of the wrong theme on every refresh.
+
+         This runs BEFORE the gateway injects window.__TENANT_SLUG__, so it can
+         only see the URL path. The cache key and the path-slug + preview logic
+         MUST stay in sync with cacheTenantSlug() / isPreviewSession() /
+         settingsStorageKey() in src/lib/. -->
+    <script>
+      (function () {
+        try {
+          var THEMES = { ccm: 1, gccm: 1, pakmil: 1 };
+          var sp = new URLSearchParams(location.search);
+          // 1. Explicit preview theme wins.
+          var pv = sp.get('theme');
+          if (pv && THEMES[pv]) { document.documentElement.setAttribute('data-theme', pv); return; }
+          var first = location.pathname.split('/').filter(Boolean)[0] || '';
+          // 2. Path slug that is itself a theme name.
+          if (THEMES[first]) { document.documentElement.setAttribute('data-theme', first); return; }
+          // 3. Don't read cache during an override/preview session — the rendered
+          //    tenant may differ from the host's real (cached) tenant.
+          if (sp.get('tenant') || sp.get('token') || /[#&](?:cms|preview)=/.test(location.hash || '')) return;
+          // Partition key must match cacheTenantSlug(): path slug, else "root".
+          var PAGE_ROUTES = { about:1, admissions:1, gallery:1, events:1, contact:1, teachers:1, downloads:1, status:1, alumni:1, results:1, 'fee-structure':1, privacy:1, terms:1, portal:1 };
+          var slug = (/^[a-z][a-z0-9-]{1,30}$/.test(first) && !PAGE_ROUTES[first]) ? first : 'root';
+          var raw = localStorage.getItem('site-settings-cache:' + location.host + ':' + slug);
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            if (parsed && THEMES[parsed.site_theme]) {
+              document.documentElement.setAttribute('data-theme', parsed.site_theme);
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

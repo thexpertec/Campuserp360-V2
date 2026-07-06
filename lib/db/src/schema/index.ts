@@ -1,20 +1,46 @@
-// Export your models here. Add one export per file
-// export * from "./posts";
-//
-// Each model/table should ideally be split into different files.
-// Each model/table should define a Drizzle table, insert schema, and types:
-//
-//   import { pgTable, text, serial } from "drizzle-orm/pg-core";
-//   import { createInsertSchema } from "drizzle-zod";
-//   import { z } from "zod/v4";
-//
-//   export const postsTable = pgTable("posts", {
-//     id: serial("id").primaryKey(),
-//     title: text("title").notNull(),
-//   });
-//
-//   export const insertPostSchema = createInsertSchema(postsTable).omit({ id: true });
-//   export type InsertPost = z.infer<typeof insertPostSchema>;
-//   export type Post = typeof postsTable.$inferSelect;
-
-export {}
+export * from "./applications";
+export * from "./applicationEvents";
+export * from "./applicationDocuments";
+export * from "./admissionsSettings";
+export * from "./testCentres";
+export * from "./academic";
+export * from "./students";
+export * from "./fees";
+export * from "./hr";
+export * from "./hostel";
+export * from "./transport";
+export * from "./library";
+export * from "./store";
+export * from "./medical";
+export * from "./timetable";
+export * from "./syllabus";
+export * from "./exams";
+export * from "./sports";
+export * from "./printSettings";
+export * from "./mediaLibrary";
+export * from "./printTemplates";
+export * from "./gate";
+export * from "./communication";
+export * from "./events";
+export * from "./studentDocuments";
+export * from "./studentDisciplinary";
+export * from "./coa";
+export * from "./bankAccounts";
+export * from "./vouchers";
+export * from "./vendors";
+export * from "./adminUsers";
+export * from "./tenants";
+export * from "./batchPrintJobs";
+export * from "./interviewers";
+export * from "./testSchedules";
+export * from "./websiteContent";
+export * from "./siteAnalytics";
+export * from "./paymentTransactions";
+export * from "./rateLimit";
+export * from "./printSignatures";
+export * from "./admissionFormConfig";
+export * from "./admissionPaymentConfig";
+export * from "./gatewayCredentials";
+export * from "./journalEntries";
+export * from "./careers";
+export * from "./challanSettings";

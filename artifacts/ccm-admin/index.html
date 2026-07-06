@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>CCM Admin ERP</title>
+    <meta name="description" content="Cadet College Murree — Admin ERP System" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Stale-cache recovery guard. Runs before the module entry script.
+      // After a deploy, a cached index.html can reference content-hashed JS/CSS
+      // files that no longer exist. The SPA fallback returns index.html (200,
+      // text/html) for those missing assets, so the browser fails to execute
+      // the entry <script type="module"> ("expected a JavaScript module but the
+      // server responded with text/html") BEFORE React mounts — the in-app
+      // ErrorBoundary never runs. This guard detects that failure and performs a
+      // single cache-busting reload to fetch the current build. It shares the
+      // "__ccm_chunk_reload__" sessionStorage flag with the ErrorBoundary in
+      // App.tsx so the two recovery paths reload at most once between them.
+      (function () {
+        var RELOAD_FLAG = "__ccm_chunk_reload__";
+        var handled = false;
+
+        function alreadyTried() {
+          try { return !!sessionStorage.getItem(RELOAD_FLAG); } catch (e) { return true; }
+        }
+        function markTried() {
+          try { sessionStorage.setItem(RELOAD_FLAG, "1"); } catch (e) {}
+        }
+        function bustingReload() {
+          var url = new URL(window.location.href);
+          url.searchParams.set("__reload", Date.now().toString());
+          window.location.replace(url.toString());
+        }
+
+        function showReloadMessage() {
+          var root = document.getElementById("root");
+          if (!root) return;
+          root.innerHTML = "";
+          var wrap = document.createElement("div");
+          wrap.setAttribute(
+            "style",
+            "min-height:100vh;display:flex;align-items:center;justify-content:center;" +
+              "font-family:Inter,system-ui,-apple-system,sans-serif;background:#f8fafc;padding:24px;"
+          );
+          var card = document.createElement("div");
+          card.setAttribute(
+            "style",
+            "max-width:28rem;width:100%;background:#fff;border:1px solid #e2e8f0;border-radius:16px;" +
+              "box-shadow:0 1px 3px rgba(0,0,0,0.1);padding:24px;text-align:center;"
+          );
+          var title = document.createElement("p");
+          title.setAttribute("style", "margin:0 0 8px;font-size:15px;font-weight:600;color:#0f172a;");
+          title.textContent = "Update available";
+          var body = document.createElement("p");
+          body.setAttribute("style", "margin:0 0 16px;font-size:14px;color:#64748b;");
+          body.textContent = "A new version of the app is ready. Please reload the page to continue.";
+          var btn = document.createElement("button");
+          btn.setAttribute(
+            "style",
+            "padding:8px 16px;border:0;border-radius:8px;background:#4f46e5;color:#fff;" +
+              "font-size:14px;font-weight:600;cursor:pointer;"
+          );
+          btn.textContent = "Reload";
+          btn.addEventListener("click", function () {
+            try { sessionStorage.removeItem(RELOAD_FLAG); } catch (e) {}
+            bustingReload();
+          });
+          card.appendChild(title);
+          card.appendChild(body);
+          card.appendChild(btn);
+          wrap.appendChild(card);
+          root.appendChild(wrap);
+        }
+
+        function recover() {
+          if (handled) return;
+          handled = true;
+          if (alreadyTried()) {
+            // We already reloaded once and the entry still failed to load.
+            // Show a readable message instead of looping forever.
+            showReloadMessage();
+            return;
+          }
+          markTried();
+          bustingReload();
+        }
+
+        // Resource-load errors (script/link) fire an "error" event on the
+        // element; these do not bubble, so listen in the capture phase.
+        window.addEventListener(
+          "error",
+          function (event) {
+            var t = event && event.target;
+            if (!t || t === window) return;
+            var tag = t.tagName;
+            if (tag === "SCRIPT" && t.type === "module") {
+              recover();
+            } else if (tag === "LINK" && t.rel === "stylesheet") {
+              recover();
+            }
+          },
+          true
+        );
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

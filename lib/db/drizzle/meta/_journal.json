@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1781115456988,
+      "tag": "0000_flawless_dorian_gray",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781207926600,
+      "tag": "0001_coa_kind_normal_balance",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781299325715,
+      "tag": "0002_outgoing_madrox",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781450882838,
+      "tag": "0002_payroll_bank_account_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781454319143,
+      "tag": "0005_charming_ben_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781460896688,
+      "tag": "0006_gorgeous_fat_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781805368134,
+      "tag": "0009_curvy_gauntlet",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1751154000000,
+      "tag": "0011_fee_challans_period_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1751241600000,
+      "tag": "0012_print_templates_custom",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1751587200000,
+      "tag": "0013_full_name_consolidation",
+      "breakpoints": true
+    }
+  ]
+}

@@ -5,10 +5,20 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed-dummy": "tsx ./seed-dummy.ts",
+    "seed-full": "tsx ./seed-full.ts",
+    "migrate-careers": "tsx ./src/migrate-careers.ts",
+    "migrate-careers-fix": "tsx ./src/migrate-careers-fix.ts",
+    "backfill-app-fee-je": "tsx ./src/backfill-application-fee-je.ts",
+    "migrate-employees-full-name": "tsx ./src/migrate-employees-full-name.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/pg": "^8.20.0",
     "tsx": "catalog:"
+  },
+  "dependencies": {
+    "pg": "^8.22.0"
   }
 }

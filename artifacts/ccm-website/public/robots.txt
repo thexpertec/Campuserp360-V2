@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://cadetcollegemurree.edu.pk/sitemap.xml

@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "python-3.12"]
 
 [deployment]
 router = "application"
@@ -18,3 +18,17 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+ADMIN_PASSWORD = "ysrbJFcaGb58DD6E"
+SAAS_ADMIN_PASSWORD = "DRdvXn5zsGRbQEch"
+ADMIN_TOKEN_SECRET = "dfab5e45d66f2a79bddb5f34a652e6cba13952845ba50c798f858a1675fa58bd"
+SAAS_ADMIN_TOKEN_SECRET = "c82a0c04f31cfeb9523e2b9c7f61dad7abe98ebd72deb791c9eefcfee709c8d3"
+PORTAL_TOKEN_SECRET = "136237241d3db8199b159dace3256fcbe5c6bd66c7d7dca4e04f78b9d6106d3b"
+CONTACT_CHALLENGE_SECRET = "60846965d5ab8962f52b767ed7b526ce126bf800439d467c3387bfaa4e2377e1"
+NEON_DATABASE_URL = "postgresql://neondb_owner:npg_52wWTJjQDYmg@ep-flat-snow-ah1batmh-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+
+[nix]
+channel = "stable-25_05"

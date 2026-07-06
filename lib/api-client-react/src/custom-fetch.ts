@@ -17,6 +17,19 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _defaultHeaders: Record<string, string> | null = null;
+
+/**
+ * Set static headers that are merged into every request made by customFetch.
+ * Useful for forwarding tenant slugs or other ambient context that isn't
+ * part of the auth token.  Call with `null` to clear.
+ *
+ * Example (website bootstrap):
+ *   setDefaultHeaders({ "x-tenant-slug": window.__TENANT_SLUG__ });
+ */
+export function setDefaultHeaders(headers: Record<string, string> | null): void {
+  _defaultHeaders = headers && Object.keys(headers).length > 0 ? { ...headers } : null;
+}
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -148,12 +161,19 @@ function truncate(text: string, maxLength = 300): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
+function looksLikeHtml(text: string): boolean {
+  const t = text.trimStart();
+  return t.startsWith("<!DOCTYPE") || t.startsWith("<!doctype") || t.startsWith("<html");
+}
+
 function buildErrorMessage(response: Response, data: unknown): string {
   const prefix = `HTTP ${response.status} ${response.statusText}`;
 
   if (typeof data === "string") {
     const text = data.trim();
-    return text ? `${prefix}: ${truncate(text)}` : prefix;
+    if (!text) return prefix;
+    if (looksLikeHtml(text)) return `${prefix}: Service unavailable — please try again`;
+    return `${prefix}: ${truncate(text)}`;
   }
 
   const title = getStringField(data, "title");
@@ -335,7 +355,11 @@ export async function customFetch<T = unknown>(
     throw new TypeError(`customFetch: ${method} requests cannot have a body.`);
   }
 
-  const headers = mergeHeaders(isRequest(input) ? input.headers : undefined, headersInit);
+  const headers = mergeHeaders(
+    _defaultHeaders ?? undefined,
+    isRequest(input) ? input.headers : undefined,
+    headersInit,
+  );
 
   if (
     typeof init.body === "string" &&

@@ -1,0 +1,368 @@
+@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700;800&family=Work+Sans:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --font-sans: var(--app-font-sans);
+  --font-serif: var(--app-font-serif);
+  --font-mono: var(--app-font-mono);
+  /* Heading font resolves at runtime from --app-font-heading so themes can swap it */
+  --font-heading: var(--app-font-heading);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* ─── GCCM Theme (default — Girls Cadet College Murree — logo-accurate: forest green primary) ─
+   Sampled from the official crest: Forest Green #245430 is the dominant outer
+   ring — it becomes primary (navbar, hero, sections). Cadet Crimson #C41230 is
+   the bold pill-badge red — it becomes accent (CTAs, icon circles, highlights).
+   Ceremonial Gold #C9A227 used for the hero stripe and nav active indicator. */
+:root,
+[data-theme="gccm"] {
+  --background: 0 0% 100%;
+  --foreground: 135 45% 8%;
+  --border: 135 15% 85%;
+  --card: 0 0% 100%;
+  --card-foreground: 135 45% 8%;
+  --card-border: 135 15% 85%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 135 45% 8%;
+  --popover-border: 135 15% 85%;
+
+  /* #245430 (Forest Green — badge outer ring, dominant brand color) → HSL 135 40% 24% */
+  --primary: 135 40% 24%;
+  --primary-foreground: 0 0% 100%;
+
+  /* #1A3D22 (Deep Forest — darker variant for depth) → HSL 135 40% 17% */
+  --secondary: 135 40% 17%;
+  --secondary-foreground: 0 0% 100%;
+
+  --muted: 135 8% 94%;
+  --muted-foreground: 135 15% 30%;
+
+  /* #C41230 (Cadet Crimson — pill badge, CTAs, highlights) → HSL 347 79% 42% */
+  --accent: 347 79% 42%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 84% 45%;
+  --destructive-foreground: 0 0% 100%;
+
+  --input: 135 15% 85%;
+  --ring: 135 40% 24%;
+
+  --app-font-sans: 'Work Sans', sans-serif;
+  --app-font-serif: Georgia, serif;
+  --app-font-mono: Menlo, monospace;
+  /* Clean modern headings matching GCCM identity */
+  --app-font-heading: 'Raleway', sans-serif;
+
+  /* Slightly rounded — modern, approachable */
+  --radius: 0.5rem;
+
+  /* Hero section — deep forest-green field (the badge ring gradient) */
+  --hero-gradient: linear-gradient(135deg, hsl(135 40% 24%) 0%, #123420 55%, #0a1f12 100%);
+  /* Soft dot-grid overlay */
+  --hero-pattern-image: radial-gradient(circle, rgba(255,255,255,0.5) 1px, transparent 1px);
+  --hero-pattern-opacity: 0.10;
+
+  /* Dark surface (footer, top bar, dark sections) — black */
+  --surface-dark: #111111;
+
+  /* ── Component-level theme vars ── */
+  /* Feature/facility icon containers — crimson circles (the pill badge colour) */
+  --icon-bg-color: hsl(347 79% 42%);
+  --icon-fg-color: hsl(0 0% 100%);
+  /* Warm cream section backgrounds — provides contrast against green/crimson sections */
+  --section-warm-bg: #fdf7ee;
+  /* Dot pattern colour for the principal section */
+  --principal-dot-color: #C41230;
+  /* Ceremonial gold stripe below the hero (wreath/medal accents from the crest) */
+  --hero-accent-stripe-height: 12px;
+  --hero-accent-stripe-color: hsl(45 68% 47%);
+  /* Alumni/Hillians section — deep green-black so white text remains readable */
+  --alumni-section-bg: var(--surface-dark);
+  /* Inner-page banner (PageHero) — deep forest green */
+  --page-hero-gradient: linear-gradient(135deg, hsl(135 40% 24%) 0%, #123420 55%, #0a1f12 100%);
+
+  /* ── Navigation theme vars ── */
+  --nav-bg: hsl(0 0% 100%);             /* white bar */
+  --nav-fg: hsl(135 45% 8%);            /* dark forest green text */
+  --nav-border-color: hsl(347 79% 42%); /* crimson bottom accent line */
+  --nav-active-color: hsl(347 79% 42%); /* crimson active indicator */
+  --nav-active-text: hsl(347 79% 42%);  /* crimson active link text */
+  --nav-cta-bg: hsl(347 79% 42%);       /* crimson CTA button */
+  --nav-cta-fg: hsl(0 0% 100%);         /* white text on crimson */
+
+  /* ── Heading accent ── */
+  --heading-accent: hsl(347 79% 42%);   /* crimson eyebrow/section labels */
+
+  /* ── Hero text vars (dark green hero → white text) ── */
+  --hero-fg: hsl(0 0% 100%);
+  --hero-fg-muted: hsl(0 0% 100% / 0.85);
+  --hero-stats-border: hsl(0 0% 100% / 0.15);
+  --hero-btn-outline-border: hsl(0 0% 100% / 0.40);
+  --hero-btn-outline-bg: hsl(0 0% 100% / 0.05);
+  --hero-btn-outline-fg: hsl(0 0% 100%);
+  --hero-btn-outline-hover-bg: hsl(0 0% 100% / 0.15);
+}
+
+/* ─── PAKMIL Theme ("Parade Ground" — Pakistan military) ──────────────────────
+   A regimental identity built on the Pakistan flag: deep bottle-green field
+   (#01411C), a white flag-band, regimental crimson (#C8102E) for calls to
+   action, and ceremonial medal-gold (#C9A227) for honours. Condensed Oswald
+   display type gives stencil/parade-ground headings; near-square corners read
+   as military precision. Same content, new structure (see [data-theme=pakmil]
+   scoped rules + the centered "parade" hero in Home.tsx). */
+[data-theme="pakmil"] {
+  --background: 0 0% 100%;
+  --foreground: 146 45% 8%;
+  --border: 146 14% 80%;
+  --card: 0 0% 100%;
+  --card-foreground: 146 45% 8%;
+  --card-border: 146 14% 80%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 146 45% 8%;
+  --popover-border: 146 14% 80%;
+
+  /* #01411C (Pakistan bottle green — primary field) → HSL 146 97% 13% */
+  --primary: 146 95% 14%;
+  --primary-foreground: 0 0% 100%;
+
+  /* #046A38 (parade green — supporting sections) → HSL 150 92% 22% */
+  --secondary: 150 92% 22%;
+  --secondary-foreground: 0 0% 100%;
+
+  --muted: 146 12% 95%;
+  --muted-foreground: 146 22% 28%;
+
+  /* #C8102E (regimental crimson — CTAs, accents) → HSL 350 85% 43% */
+  --accent: 350 85% 43%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 84% 45%;
+  --destructive-foreground: 0 0% 100%;
+
+  --input: 146 14% 80%;
+  --ring: 146 95% 14%;
+
+  --app-font-sans: 'Work Sans', sans-serif;
+  --app-font-serif: Georgia, serif;
+  --app-font-mono: Menlo, monospace;
+  /* Condensed parade-ground display type for headings */
+  --app-font-heading: 'Oswald', sans-serif;
+
+  /* Crisp near-square military corners */
+  --radius: 0.125rem;
+
+  /* Medal gold — used for honours/dividers via scoped rules */
+  --pakmil-gold: #C9A227;
+  --pakmil-green: #01411C;
+  --pakmil-red: #C8102E;
+
+  /* Hero section — deep bottle-green parade field fading to green-black */
+  --hero-gradient: linear-gradient(160deg, hsl(146 95% 14%) 0%, #02331a 55%, #010f07 100%);
+  /* Chevron / rank twill overlay */
+  --hero-pattern-image: repeating-linear-gradient(135deg, rgba(255,255,255,0.6) 0, rgba(255,255,255,0.6) 1px, transparent 1px, transparent 16px);
+  --hero-pattern-opacity: 0.05;
+
+  /* Dark surface (footer, top bar, dark sections) — black */
+  --surface-dark: #111111;
+
+  /* ── Component-level theme vars ── */
+  /* Feature/facility icon containers — solid green discs with gold icon */
+  --icon-bg-color: hsl(146 95% 14%);
+  --icon-fg-color: var(--pakmil-gold);
+  /* Warm parade-cream section backgrounds */
+  --section-warm-bg: #f6f4ea;
+  /* Dot pattern colour for the principal section */
+  --principal-dot-color: #01411C;
+  /* Medal-gold ribbon below the hero */
+  --hero-accent-stripe-height: 8px;
+  --hero-accent-stripe-color: var(--pakmil-gold);
+  /* Alumni/Hillians section — deep green-black so white text stays readable */
+  --alumni-section-bg: var(--surface-dark);
+  /* Inner-page banner (PageHero) — deep bottle green */
+  --page-hero-gradient: linear-gradient(160deg, hsl(146 95% 14%) 0%, #02331a 55%, #010f07 100%);
+
+  /* ── Navigation theme vars ── */
+  --nav-bg: hsl(0 0% 100%);             /* white bar */
+  --nav-fg: hsl(146 45% 8%);            /* dark bottle-green text */
+  --nav-border-color: var(--pakmil-gold); /* gold 3px bottom accent line */
+  --nav-active-color: var(--pakmil-gold); /* gold active indicator */
+  --nav-active-text: hsl(146 95% 14%);  /* dark green for active link text */
+  --nav-cta-bg: var(--pakmil-red);      /* crimson CTA button */
+  --nav-cta-fg: hsl(0 0% 100%);
+
+  /* ── Heading accent ── */
+  --heading-accent: var(--pakmil-red);  /* crimson eyebrow labels */
+
+  /* ── Hero text vars (dark green hero → white text) ── */
+  --hero-fg: hsl(0 0% 100%);
+  --hero-fg-muted: hsl(0 0% 100% / 0.85);
+  --hero-stats-border: hsl(0 0% 100% / 0.15);
+  --hero-btn-outline-border: hsl(0 0% 100% / 0.40);
+  --hero-btn-outline-bg: hsl(0 0% 100% / 0.05);
+  --hero-btn-outline-fg: hsl(0 0% 100%);
+  --hero-btn-outline-hover-bg: hsl(0 0% 100% / 0.15);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--app-font-heading);
+  }
+}
+
+/* ─── Navigation CSS utility classes (consumed by Navbar.tsx — fully var-driven) ─── */
+.site-nav-bar {
+  background: var(--nav-bg);
+  color: var(--nav-fg);
+  border-bottom: 3px solid var(--nav-border-color);
+}
+
+.nav-link {
+  color: var(--nav-fg);
+  opacity: 0.72;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.nav-link:hover {
+  opacity: 1;
+}
+.nav-link--active {
+  color: var(--nav-active-text, var(--nav-active-color)) !important;
+  opacity: 1 !important;
+  font-weight: 600;
+}
+
+.nav-indicator-bar {
+  background-color: var(--nav-active-color);
+}
+
+.nav-dropdown-trigger {
+  color: var(--nav-fg);
+  opacity: 1;
+  transition: opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.nav-dropdown-trigger:hover,
+.nav-dropdown-trigger[data-state="open"] {
+  opacity: 1;
+  color: var(--nav-active-color);
+}
+.nav-dropdown-trigger--active {
+  color: var(--nav-active-text, var(--nav-active-color)) !important;
+  opacity: 1 !important;
+  font-weight: 600;
+}
+
+.nav-cta-btn {
+  background-color: var(--nav-cta-bg) !important;
+  color: var(--nav-cta-fg) !important;
+  border-color: var(--nav-cta-bg) !important;
+}
+.nav-cta-btn:hover {
+  opacity: 0.9;
+}
+
+/* ─── PAKMIL structural / motif rules (Pakistan military) ─────────────────────
+   These scoped rules give the theme a distinct STRUCTURE & finish on top of the
+   token swap above, applied site-wide to every page without forking JSX. */
+
+/* Pakistan flag command stripe across the very top of the header */
+[data-theme="pakmil"] header[data-testid="header-nav"] {
+  border-top: 5px solid transparent;
+  border-image: linear-gradient(
+    90deg,
+    var(--pakmil-green) 0 70%,
+    #ffffff 70% 78%,
+    var(--pakmil-green) 78% 100%
+  ) 1;
+}
+
+/* Parade-ground display headings — condensed, uppercase, tightly tracked */
+[data-theme="pakmil"] h1,
+[data-theme="pakmil"] h2 {
+  text-transform: uppercase;
+  letter-spacing: 0.045em;
+  font-weight: 700;
+}
+
+/* Gold medal rule under the main nav bar (sits below the gold border var) */
+[data-theme="pakmil"] .nav-cta-btn {
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Chevron rank indicator for the active nav link */
+[data-theme="pakmil"] .nav-indicator-bar {
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--pakmil-gold), transparent);
+}
+
+/* Section eyebrow accent → crimson handled by --heading-accent; add a gold
+   underscore bar wherever the hero ribbon appears */
+[data-theme="pakmil"] [data-testid="home-hero"] {
+  border-bottom: 3px solid var(--pakmil-gold);
+}

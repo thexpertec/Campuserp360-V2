@@ -15,17 +15,25 @@ run = "pnpm --filter @workspace/api-server run dev"
 [services.production]
 
 [services.production.build]
-args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
+# Builds composite libs, the api-server bundle, all three vite frontends
+# (each with its correct BASE_PATH), and the Streamlit python deps.
+args = ["bash", "scripts/build-prod.sh"]
 
 [services.production.build.env]
 NODE_ENV = "production"
 
 [services.production.run]
-# we don't run through pnpm to make startup faster in production
+# Run the api-server bundle directly. The platform now routes each artifact
+# independently (static builds for the 3 frontends, candidate-portal as its
+# own runnable artifact on its own port) — this service only needs to serve
+# /api + /uploads on its assigned $PORT. Do NOT reintroduce the old
+# scripts/start-prod.sh wrapper here: it also spawns its own internal gateway
+# and a second copy of the Streamlit candidate-portal on port 8000, which
+# collides with the platform's own candidate-portal process and crash-loops
+# the deploy (see .agents/memory/prod-candidate-portal-double-launch.md).
 args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 
 [services.production.run.env]
-PORT = "8080"
 NODE_ENV = "production"
 
 [services.production.health.startup]

@@ -1,0 +1,38 @@
+kind = "web"
+previewPath = "/saas/"
+title = "SaaS Admin"
+version = "1.0.0"
+id = "artifacts/saas-admin"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/saas/" ]
+localPort = 9000
+
+[services.development]
+run = "pnpm --filter @workspace/saas-admin run dev"
+
+[services.production]
+publicDir = "artifacts/saas-admin/dist/public"
+serve = "static"
+
+[services.production.build]
+args = ["pnpm", "--filter", "@workspace/saas-admin", "run", "build"]
+
+[services.production.build.env]
+BASE_PATH = "/saas/"
+PORT = "9000"
+NODE_ENV = "production"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "9000"
+BASE_PATH = "/saas/"

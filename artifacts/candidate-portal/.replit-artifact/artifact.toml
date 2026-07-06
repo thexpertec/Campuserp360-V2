@@ -1,0 +1,28 @@
+kind = "api"
+previewPath = "/portal"
+title = "Candidate Portal"
+version = "1.0.0"
+id = "artifacts/candidate-portal"
+router = "path"
+
+[[services]]
+name = "Candidate Portal"
+paths = ["/portal"]
+localPort = 8000
+
+[services.env]
+PORT = "8000"
+
+[services.development]
+run = "bash -lc 'cd /home/runner/workspace/artifacts/candidate-portal && exec /home/runner/workspace/.pythonlibs/bin/streamlit run app.py --server.port ${PORT:-8000} --server.address 0.0.0.0 --server.baseUrlPath portal --server.headless true'"
+
+[services.production]
+
+[services.production.build]
+args = ["bash", "-lc", "cd /home/runner/workspace && uv venv .pythonlibs && VIRTUAL_ENV=/home/runner/workspace/.pythonlibs uv pip install -r artifacts/candidate-portal/requirements.txt"]
+
+[services.production.run]
+args = ["bash", "-lc", "cd /home/runner/workspace/artifacts/candidate-portal && exec /home/runner/workspace/.pythonlibs/bin/streamlit run app.py --server.port ${PORT:-8000} --server.address 0.0.0.0 --server.baseUrlPath /portal --server.headless true"]
+
+[services.production.health.startup]
+path = "/portal/"
