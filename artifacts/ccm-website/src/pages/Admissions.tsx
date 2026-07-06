@@ -219,6 +219,7 @@ export default function Admissions() {
   const [submitted, setSubmitted] = useState(false);
   const [referenceId, setReferenceId] = useState<string>("");
   const [portalUsername, setPortalUsername] = useState<string>("");
+  const [portalPassword, setPortalPassword] = useState<string>("");
   const [submittedPayment, setSubmittedPayment] = useState<{ method: string; status: string } | null>(null);
   const [step, setStep] = useState(0);
   const [phase, setPhase] = useState<"information" | "apply">("information");
@@ -682,6 +683,7 @@ export default function Admissions() {
       });
       setReferenceId(created.referenceId);
       setPortalUsername(values.studentEmail || values.studentMobile);
+      setPortalPassword((created as { portalPassword?: string }).portalPassword ?? "");
       setSubmittedPayment({ method: payMethod, status: payStatus });
       setSubmitted(true);
       try {
@@ -824,6 +826,7 @@ export default function Admissions() {
             <SubmittedSuccess
               referenceId={referenceId}
               portalUsername={portalUsername}
+              portalPassword={portalPassword}
               onReset={startNewApplication}
               paymentMethod={submittedPayment?.method ?? null}
               paymentStatus={submittedPayment?.status ?? null}
@@ -1543,7 +1546,8 @@ export default function Admissions() {
                                 </button>
                               )}
 
-                              {/* Always-visible: Simulate Payment */}
+                              {/* Simulate Payment — dev/demo only */}
+                              {!import.meta.env.PROD && (
                               <button
                                 type="button"
                                 onClick={() => setSelectedPayMethod("simulate")}
@@ -1564,6 +1568,7 @@ export default function Admissions() {
                                 </div>
                                 {selectedPayMethod === "simulate" && <CheckCircle className="w-5 h-5 text-accent flex-shrink-0" />}
                               </button>
+                              )}
                             </div>
 
                             {/* Bank Deposit panel */}
@@ -1707,8 +1712,8 @@ export default function Admissions() {
                               </div>
                             )}
 
-                            {/* Simulate panel */}
-                            {selectedPayMethod === "simulate" && (
+                            {/* Simulate panel — dev/demo only */}
+                            {!import.meta.env.PROD && selectedPayMethod === "simulate" && (
                               <div className="bg-accent/5 border border-accent/25 rounded-xl p-5 space-y-3" data-testid="panel-simulate">
                                 <p className="text-sm text-foreground/70">
                                   <strong>Test mode:</strong> clicking the button below instantly marks your payment as successful without any real transaction. Use this in demo / development environments.
@@ -1943,12 +1948,12 @@ function PhotoUpload({
   );
 }
 
-function SubmittedSuccess({ referenceId, portalUsername, onReset, paymentMethod, paymentStatus }: { referenceId: string; portalUsername: string; onReset: () => void; paymentMethod?: string | null; paymentStatus?: string | null }) {
+function SubmittedSuccess({ referenceId, portalUsername, portalPassword, onReset, paymentMethod, paymentStatus }: { referenceId: string; portalUsername: string; portalPassword?: string; onReset: () => void; paymentMethod?: string | null; paymentStatus?: string | null }) {
   const trackHref = `/status?ref=${encodeURIComponent(referenceId)}`;
-  return <SubmittedSuccessInner referenceId={referenceId} portalUsername={portalUsername} onReset={onReset} trackHref={trackHref} paymentMethod={paymentMethod} paymentStatus={paymentStatus} />;
+  return <SubmittedSuccessInner referenceId={referenceId} portalUsername={portalUsername} portalPassword={portalPassword} onReset={onReset} trackHref={trackHref} paymentMethod={paymentMethod} paymentStatus={paymentStatus} />;
 }
 
-function SubmittedSuccessInner({ referenceId, portalUsername, onReset, trackHref, paymentMethod, paymentStatus }: { referenceId: string; portalUsername: string; onReset: () => void; trackHref: string; paymentMethod?: string | null; paymentStatus?: string | null }) {
+function SubmittedSuccessInner({ referenceId, portalUsername, portalPassword, onReset, trackHref, paymentMethod, paymentStatus }: { referenceId: string; portalUsername: string; portalPassword?: string; onReset: () => void; trackHref: string; paymentMethod?: string | null; paymentStatus?: string | null }) {
   const { toast } = useToast();
 
   const copyId = async () => {
@@ -2057,7 +2062,10 @@ function SubmittedSuccessInner({ referenceId, portalUsername, onReset, trackHref
             <div>
               <div className="text-[10px] uppercase tracking-widest text-foreground/50 font-bold mb-1">Password</div>
               <div className="font-mono font-semibold text-sm bg-muted border border-border rounded-lg px-3 py-2">
-                12345 <span className="text-foreground/45 font-normal">(default — change after login)</span>
+                {portalPassword || "—"}{" "}
+                {portalPassword && (
+                  <span className="text-foreground/45 font-normal">(save this — change after login)</span>
+                )}
               </div>
             </div>
             <a

@@ -20,6 +20,9 @@ import {
 } from "../lib/payments/payfast.js";
 import { canonicalizeCnic, canonicalizePhone } from "../lib/format-utils.js";
 import { putObject } from "../lib/storage.js";
+import { hashPortalPassword } from "../lib/portal-password.js";
+import { deriveInitialFeeStatus } from "../lib/fee-status.js";
+import { generatePortalPassword } from "../lib/portal-password-generate.js";
 
 const router: IRouter = Router();
 
@@ -373,6 +376,14 @@ router.post("/applications", async (req: Request, res: Response) => {
   }
 
   try {
+    const portalPasswordPlain = generatePortalPassword();
+    const defaultPortalPassword = await hashPortalPassword(portalPasswordPlain);
+    const initialFeeStatus = deriveInitialFeeStatus({
+      paymentMethod: (input as any).paymentMethod,
+      paymentStatus: (input as any).paymentStatus,
+      paymentReference: (input as any).paymentReference,
+      receiptBase64: receiptBase64 ?? null,
+    });
     const [created] = await db
       .insert(applicationsTable)
       .values({
@@ -409,10 +420,11 @@ router.post("/applications", async (req: Request, res: Response) => {
         parentCnicLast4: cnicLast4,
         status: "received",
         tenantId,
-        // Payment step fields
+        portalPassword: defaultPortalPassword,
+        // Payment step fields — feeStatus is server-derived; client cannot mark paid.
         paymentMethod: (input as any).paymentMethod ?? null,
         feeBankRef: (input as any).paymentReference ?? null,
-        feeStatus: (input as any).paymentStatus ?? "pending",
+        feeStatus: initialFeeStatus,
         feeReceiptUrl: feeReceiptUrl ?? null,
       })
       .returning();
@@ -436,6 +448,7 @@ router.post("/applications", async (req: Request, res: Response) => {
       referenceId: created.referenceId,
       status: created.status,
       createdAt: created.createdAt.toISOString(),
+      portalPassword: portalPasswordPlain,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to create application");
@@ -855,9 +868,19 @@ async function handleApplicationReturn(gw: Gateway, req: Request, res: Response)
       return redirectToAdmissions(req, res, "failed", app.referenceId);
     }
 
-    // Mark paid
+    // Mark paid — atomic transition from initiated only (prevents double-callback races).
     const ref = gatewayTxnId || txnRef;
-    await db.update(paymentTransactionsTable).set({ status: "paid", gatewayTxnId, paidAt: new Date(), responseCode, responseMessage, rawResponse: raw }).where(eq(paymentTransactionsTable.id, txn.id));
+    const [paidTxn] = await db
+      .update(paymentTransactionsTable)
+      .set({ status: "paid", gatewayTxnId, paidAt: new Date(), responseCode, responseMessage, rawResponse: raw })
+      .where(and(
+        eq(paymentTransactionsTable.id, txn.id),
+        eq(paymentTransactionsTable.status, "initiated"),
+      ))
+      .returning({ id: paymentTransactionsTable.id });
+    if (!paidTxn) {
+      return redirectToAdmissions(req, res, "success", app.referenceId);
+    }
     await db.update(applicationsTable).set({ feeStatus: "paid", feeBankRef: ref, feeSubmittedAt: app.feeSubmittedAt ?? new Date(), feeConfirmedAt: new Date() }).where(eq(applicationsTable.id, app.id));
     await db.insert(applicationEventsTable).values({
       applicationId: app.id,

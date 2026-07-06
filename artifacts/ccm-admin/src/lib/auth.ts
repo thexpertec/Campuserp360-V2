@@ -6,21 +6,24 @@ const USER_KEY = "ccm_admin_user";
 /** Dispatched on the same window after a token is stored so providers can re-fetch. */
 export const AUTH_TOKEN_SET_EVENT = "ccm-auth-token-set";
 
+function syncTenantHeader() {
+  const user = getUser();
+  const tenantId = user?.tenantId as string | undefined;
+  if (tenantId) {
+    setDefaultHeaders({ "x-tenant-id": tenantId });
+  }
+}
+
 export function initAuth() {
-  // Route Orval-generated API hooks through the correct base URL.
-  // In Replit dev, VITE_API_BASE is the main domain (port 5000 proxy) so that
-  // PUT/PATCH/DELETE requests are not blocked by Replit's port-8099 proxy.
   const base = (import.meta.env.VITE_API_BASE as string) || null;
   setBaseUrl(base);
   setAuthTokenGetter(() => localStorage.getItem(TOKEN_KEY));
-  // Always tell the API server which tenant this admin console manages.
-  // getAdminTenantId() falls back to host-domain matching only, which fails on
-  // *.replit.app and any domain not registered in the tenants table.
-  setDefaultHeaders({ "x-tenant-id": "ccm" });
+  syncTenantHeader();
 }
 
 export function setToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token);
+  syncTenantHeader();
   window.dispatchEvent(new Event(AUTH_TOKEN_SET_EVENT));
 }
 
@@ -30,6 +33,7 @@ export function getToken() {
 
 export function setUser(user: any) {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  syncTenantHeader();
 }
 
 export function getUser() {

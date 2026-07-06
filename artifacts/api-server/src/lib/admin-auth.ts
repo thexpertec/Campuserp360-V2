@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import type { Request, Response, NextFunction } from "express";
+import { db } from "@workspace/db";
+import { tenantModulePermissionsTable } from "@workspace/db/schema";
+import { eq, and } from "drizzle-orm";
 
 // ── Secret / credential checks ───────────────────────────────────────────────
 // TOKEN_SECRET signs every admin session token — it MUST be a secret env var.
@@ -14,7 +17,7 @@ const TOKEN_SECRET = process.env["ADMIN_TOKEN_SECRET"] ?? "ccm-admin-dev-secret-
 const _DEFAULTS_IN_USE: string[] = [];
 if (!process.env["ADMIN_TOKEN_SECRET"]) _DEFAULTS_IN_USE.push("ADMIN_TOKEN_SECRET");
 if (!process.env["ADMIN_PASSWORD"])     _DEFAULTS_IN_USE.push("ADMIN_PASSWORD");
-if (_DEFAULTS_IN_USE.length) {
+if (_DEFAULTS_IN_USE.length && process.env.NODE_ENV !== "production") {
   console.error(
     "\n⚠️  SECURITY WARNING ⚠️\n" +
     `   The following secrets are using insecure defaults: ${_DEFAULTS_IN_USE.join(", ")}\n` +
@@ -38,6 +41,13 @@ export type AdminUser = {
   tenantId?: string;
   roles: Array<{ module: string; permission: string }>;
 };
+
+/** True platform super-admin (env admin or SaaS impersonation), not tenant director. */
+export function isPlatformSuperAdmin(user: AdminUser): boolean {
+  if (!user.isSuperAdmin) return false;
+  if (!user.tenantId) return true;
+  return user.id.startsWith("saas-impersonate");
+}
 
 export type AdminTokenResult = {
   token: string;
@@ -246,7 +256,7 @@ export function requireSuperAdmin(
     res.status(401).json({ error: "Invalid or expired session" });
     return;
   }
-  if (!user.isSuperAdmin) {
+  if (!isPlatformSuperAdmin(user)) {
     res.status(403).json({ error: "Super-admin access required" });
     return;
   }
@@ -268,13 +278,26 @@ export function hasModuleRole(
   module: string,
   permission: "view" | "draft" | "post" | "edit" | "delete",
 ): boolean {
-  if (user.isSuperAdmin) return true;
+  // Platform super-admin only — tenant directors use requireRole's tenant bypass.
+  if (isPlatformSuperAdmin(user)) return true;
   const required = PERMISSION_HIERARCHY[permission] ?? 1;
   return user.roles.some(
     (r) =>
       (r.module === module || r.module === "*") &&
       (PERMISSION_HIERARCHY[r.permission] ?? 0) >= required,
   );
+}
+
+async function isTenantModuleEnabled(tenantId: string, moduleKey: string): Promise<boolean> {
+  const [row] = await db
+    .select({ enabled: tenantModulePermissionsTable.enabled })
+    .from(tenantModulePermissionsTable)
+    .where(and(
+      eq(tenantModulePermissionsTable.tenantId, tenantId),
+      eq(tenantModulePermissionsTable.moduleKey, moduleKey),
+    ))
+    .limit(1);
+  return row ? row.enabled : true;
 }
 
 /**
@@ -287,7 +310,7 @@ export function hasModuleRole(
  * immediately without forcing a re-login.
  */
 export function requireRole(module: string, permission: "view" | "draft" | "post" | "edit" | "delete") {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     // Prefer a pre-hydrated user (may have refreshed isSuperAdmin from DB)
     let user = req.adminUser;
     if (!user) {
@@ -306,7 +329,15 @@ export function requireRole(module: string, permission: "view" | "draft" | "post
       user = verified;
     }
 
-    if (user.isSuperAdmin) { next(); return; }
+    if (isPlatformSuperAdmin(user)) { next(); return; }
+
+    if (user.tenantId) {
+      const enabled = await isTenantModuleEnabled(user.tenantId, module);
+      if (!enabled) {
+        res.status(403).json({ error: `Module "${module}" is disabled for this institution` });
+        return;
+      }
+    }
 
     // Tenant admin users (created via SaaS Admin, role !== "staff") act as
     // directors for all modules within their own tenant. Staff users have
@@ -348,7 +379,7 @@ export function requireRole(module: string, permission: "view" | "draft" | "post
  * which still lets true super-admins bypass) is accepted here.
  */
 export function requireGlobalRole(module: string, permission: "view" | "draft" | "post" | "edit" | "delete") {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     let user = req.adminUser;
     if (!user) {
       const header = req.headers.authorization ?? "";

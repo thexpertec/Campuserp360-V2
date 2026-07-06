@@ -12,6 +12,8 @@ import { migrateMedical } from "./routes/medical";
 import { migrateAccountPayments } from "./routes/accountPayments";
 import { migrateVouchers } from "./routes/vouchers";
 import { migrateGuardians } from "./routes/guardians";
+import { migrateGate } from "./routes/gate";
+import { assertProductionSecrets } from "./lib/security-production";
 import { migrateAdminSystem } from "./lib/migrate-admin";
 import { migrateSaas } from "./lib/migrate-saas";
 import { migrateExamScheduleYears } from "./lib/migrate-exam-years";
@@ -47,6 +49,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function startup() {
+  assertProductionSecrets();
   if (!r2Configured) {
     logger.warn(
       "⚠  R2 object storage is NOT configured — file uploads will be saved to local disk (ephemeral). " +
@@ -97,6 +100,7 @@ async function startup() {
       // migrateGuardians must run after the core schema exists (it ALTERs the
       // students table which is created by the main Drizzle schema on first boot).
       await migrateGuardians();
+      await migrateGate();
 
       await migrateExamScheduleYears();
       await migrateStudentEnrollments();
