@@ -443,7 +443,7 @@ export default function FeeVerificationTab() {
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-[110px]">Class</th>
               <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-[100px]">Amount</th>
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide min-w-[220px]">Application Fee</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide min-w-[260px]">Application Fee</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide min-w-[260px]">Admission Fee</th>
               <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-16">Profile</th>
             </tr>
           </thead>
