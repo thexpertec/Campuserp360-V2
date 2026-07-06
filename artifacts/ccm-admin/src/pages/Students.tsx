@@ -955,7 +955,7 @@ export function StudentFormDialog({
               <tr className="bg-slate-100 border-b-2 border-slate-200 select-none">
                 <th className="py-2.5 text-center text-[10px] text-slate-400 border-r border-slate-200">#</th>
                 {[
-                  { l: "Register ID", req: true }, { l: "First Name", req: true },
+                  { l: "Register ID", req: true }, { l: "Full Name", req: true },
                   { l: "Guardian" }, { l: "Phone" }, { l: "Date of Birth" },
                 ].map(({ l, req }) => (
                   <th key={l} className="px-2.5 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500 border-r border-slate-200 last:border-r-0 whitespace-nowrap">
