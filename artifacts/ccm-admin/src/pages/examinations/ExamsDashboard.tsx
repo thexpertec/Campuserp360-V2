@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { formatDate } from "@/lib/locale";
 import { useLocation } from "wouter";
 import { getToken } from "@/lib/auth";
-import { CalendarDays, Users, CheckCircle2, Award, BarChart3, FileText, CalendarRange, Trophy } from "lucide-react";
+import { CalendarDays, Users, CheckCircle2, Award, BarChart3, FileText, CalendarRange, Trophy, LayoutGrid } from "lucide-react";
 
 async function apiFetch<T>(url: string): Promise<T> {
   const token = getToken();
@@ -71,6 +71,7 @@ export function ExamsDashboard() {
     { icon: CalendarDays,  label: "Schedule Exams",  sub: "Create exam sittings by class & subject", tab: "schedule"     },
     { icon: BarChart3,     label: "Results Entry",   sub: "Enter marks for a scheduled exam",         tab: "results"      },
     { icon: FileText,      label: "Report Cards",    sub: "View & print class report cards",          tab: "report-cards" },
+    { icon: LayoutGrid,    label: "Master Datesheet",sub: "Classwise datesheet across multiple classes", tab: "master-datesheet" },
     { icon: CalendarRange, label: "Date Sheet",      sub: "Printable date-wise exam timetable",       tab: "date-sheet"   },
     { icon: Trophy,        label: "Merit List",      sub: "Class/Program rankings by session percentage",     tab: "merit"        },
     { icon: Award,         label: "Setup",           sub: "Exam types, grading scales & bands",       tab: "setup"        },
