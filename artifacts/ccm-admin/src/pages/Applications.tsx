@@ -145,6 +145,10 @@ const RESULT_STATUS_OPTIONS = [
 const ENTRY_TEST_STATUS_OPTIONS = STATUS_OPTIONS.filter(o =>
   ["test_scheduled", "test_taken"].includes(o.value)
 );
+// Pipeline statuses that come BEFORE the entry test has been taken. Marks may
+// only be recorded once the applicant is at test_taken or a later stage.
+// Kept in sync with the backend guard in api-server routes/admin.ts.
+const ET_BEFORE_TEST_TAKEN = ["received", "under_review", "verified", "test_scheduled"];
 const INTERVIEW_STATUS_OPTIONS = STATUS_OPTIONS.filter(o =>
   ["interview_scheduled", "interview_taken"].includes(o.value)
 );
@@ -5004,7 +5008,7 @@ function EntryTestTab() {
       }
       if (!res.ok) throw new Error("Failed");
       invalidate();
-      toast({ title: "Marks saved — status set to Test Taken" });
+      toast({ title: "Marks saved" });
     } catch {
       toast({ title: "Save failed", variant: "destructive" });
     } finally {
@@ -5223,7 +5227,7 @@ function EntryTestTab() {
     { key: "status",      label: "Entry Test Status",  defaultVisible: true,  defaultWidth: 210, render: r => r.status === "enrolled" ? <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2.5 py-0.5 text-[11px] font-semibold text-teal-700"><Lock className="h-3 w-3" />Enrolled</span> : <InlineStatusCell app={r} onMutate={(id, st) => inlineMutation.mutate({ referenceId: id, data: { status: st as never, force: true } as never })} isUpdating={inlineMutation.isPending && inlineMutation.variables?.referenceId === r.referenceId} allowedStatuses={ENTRY_TEST_STATUS_OPTIONS} placeholder="Schedule A Test" currentValue={entryTestStatusValue(r.status ?? "")} />, getText: r => statusLabel(r.status ?? "") },
     { key: "testDate",    label: "Test Date",           defaultVisible: true,  defaultWidth: 130, render: r => <span className="text-[12px] text-slate-600">{(r as any).testDate ? new Date((r as any).testDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : <span className="text-slate-300">—</span>}</span>, getText: r => (r as any).testDate ? new Date((r as any).testDate).toLocaleDateString("en-GB") : "" },
     { key: "examCenter",  label: "Exam Centre",         defaultVisible: true,  defaultWidth: 170, render: r => <div className="flex items-center gap-1.5 text-[12px] text-slate-600">{r.examCenter ? <><MapPin className="h-3 w-3 text-slate-400 shrink-0" />{r.examCenter}</> : <span className="text-slate-300">—</span>}</div>, getText: r => r.examCenter ?? "" },
-    { key: "marks",       label: "Marks /100",          defaultVisible: true,  defaultWidth: 130, render: r => <InlineMarksCell referenceId={r.referenceId} value={r.resultMarks} max={100} savingId={savingMarkId} onSave={saveTestMark} disabled={r.status === "enrolled"} disabledReason="Applicant is enrolled — record is locked" />, getText: r => r.resultMarks != null ? String(r.resultMarks) : "" },
+    { key: "marks",       label: "Marks /100",          defaultVisible: true,  defaultWidth: 130, render: r => <InlineMarksCell referenceId={r.referenceId} value={r.resultMarks} max={100} savingId={savingMarkId} onSave={saveTestMark} disabled={r.status === "enrolled" || ET_BEFORE_TEST_TAKEN.includes(r.status ?? "")} disabledReason={r.status === "enrolled" ? "Applicant is enrolled — record is locked" : "Mark the test as Taken before entering marks"} />, getText: r => r.resultMarks != null ? String(r.resultMarks) : "" },
   ];
 
   return (
@@ -5319,6 +5323,13 @@ function EntryTestTab() {
                     const origMarks = r.resultMarks != null ? String(r.resultMarks) : "";
                     const rowDirty  = Object.keys(etGrid.pending).some(k => k.startsWith(`${r.referenceId}::`));
                     const isEnrolled = r.status === "enrolled";
+                    const statusDefault = entryTestStatusValue(r.status ?? "") ?? (r.status ?? "");
+                    const pendingStatus = etGrid.getCellValue(r.referenceId, "status", statusDefault);
+                    const statusDirty = etGrid.isCellDirty(r.referenceId, "status", statusDefault);
+                    // Real status is already at/after test_taken, OR the admin has
+                    // explicitly switched the dropdown to Test Taken in this session.
+                    const realTestTaken = !ET_BEFORE_TEST_TAKEN.includes(r.status ?? "");
+                    const marksEditable = !isEnrolled && (realTestTaken || (statusDirty && pendingStatus === "test_taken"));
                     return (
                       <tr key={r.referenceId} className={cn("hover:bg-slate-50/60 transition-colors", rowDirty && !isEnrolled && "bg-amber-50/30", etFailedRefs.has(r.referenceId) && "bg-red-50 outline outline-1 outline-red-200", isEnrolled && "opacity-60 bg-teal-50/20")}>
                         <td className="px-3 py-1.5 font-mono text-[11px] font-bold text-indigo-600 whitespace-nowrap">{r.referenceId}</td>
@@ -5366,6 +5377,11 @@ function EntryTestTab() {
                         <td className="px-2 py-1 text-center">
                           {isEnrolled
                             ? <span className="text-xs text-slate-400">{r.resultMarks ?? "—"}</span>
+                            : !marksEditable
+                            ? <span className="inline-flex items-center justify-center gap-1 text-slate-300" title="Mark the test as Taken before entering marks">
+                                <Lock className="h-3 w-3" />
+                                <span className="text-xs italic">{r.resultMarks ?? "—"}</span>
+                              </span>
                             : <GridNumberCell
                                 editMode
                                 value={etGrid.getCellValue(r.referenceId, "resultMarks", origMarks)}

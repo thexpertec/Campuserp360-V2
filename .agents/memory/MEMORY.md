@@ -1,3 +1,4 @@
 - [Restoring artifacts from backup](artifact-restore-registration.md) — copying a multi-artifact repo back doesn't re-register artifacts; re-validate any one artifact.toml to trigger a full rescan.
 - [Python artifacts on Replit](python-artifact-build.md) — uv sync needs pyproject.toml/uv.lock; when only requirements.txt exists, build with `uv venv .pythonlibs` + `uv pip install -r requirements.txt`.
 - [Vite config PORT at build time](vite-port-build-time.md) — vite.config.ts must not throw on missing PORT; PORT only exists at runtime, so use a fallback default or the production build fails.
+- [Entry test marks require test_taken](entry-test-marks-rule.md) — marks only recordable at/after test_taken; enforced in 2 admin grids + 3 backend endpoints; don't gate on entryTestStatusValue().

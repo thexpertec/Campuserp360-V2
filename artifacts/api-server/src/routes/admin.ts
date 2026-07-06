@@ -1705,10 +1705,15 @@ router.patch(
           failed++;
           continue;
         }
-        // Auto-advance to test_taken when resultMarks provided and status is before that stage
+        // Marks may only be recorded once the entry test has been taken. The
+        // effective status is the one set in this same update (if any),
+        // otherwise the applicant's current status.
         const BEFORE_TEST_TAKEN_ET = ["received", "under_review", "verified", "test_scheduled"];
-        if (updates.resultMarks !== undefined && !updates.status && BEFORE_TEST_TAKEN_ET.includes(pre.status)) {
-          updates.status = "test_taken";
+        const effectiveStatus = updates.status ?? pre.status;
+        if (updates.resultMarks !== undefined && BEFORE_TEST_TAKEN_ET.includes(effectiveStatus)) {
+          results.push({ referenceId: refId, success: false, error: "Mark the test as Taken before recording marks" });
+          failed++;
+          continue;
         }
         await db
           .update(applicationsTable)
@@ -3069,7 +3074,7 @@ router.patch(
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid bulk marks request", issues: parsed.error.issues });
     }
-    const { entries, advanceStatus } = parsed.data;
+    const { entries } = parsed.data;
 
     try {
       const tenantId = requireTenant(req, res);
@@ -3112,6 +3117,11 @@ router.patch(
           const BEFORE_INTERVIEW_TAKEN_BULK = ["received", "under_review", "verified", "test_scheduled", "test_taken", "interview_scheduled"];
 
           if (entry.resultMarks !== undefined) {
+            // Entry test marks may only be recorded once the test has been taken.
+            if (BEFORE_TEST_TAKEN_BULK.includes(app.status)) {
+              skipped.push({ referenceId: app.referenceId, reason: "Mark the test as Taken before recording marks" });
+              continue;
+            }
             updates.resultMarks = entry.resultMarks;
           }
 
@@ -3121,20 +3131,10 @@ router.patch(
 
           if (Object.keys(updates).length === 0) continue;
 
-          // Auto-advance status whenever marks move the pipeline forward
-          if (entry.resultMarks !== undefined && BEFORE_TEST_TAKEN_BULK.includes(app.status)) {
-            updates.status = "test_taken";
-            statusAdvanced++;
-          } else if (entry.interviewMarks !== undefined && BEFORE_INTERVIEW_TAKEN_BULK.includes(app.status)) {
+          // Auto-advance status when interview marks move the pipeline forward
+          if (entry.interviewMarks !== undefined && BEFORE_INTERVIEW_TAKEN_BULK.includes(app.status)) {
             updates.status = "interview_taken";
             statusAdvanced++;
-          } else if (advanceStatus) {
-            // Legacy advanceStatus flag: still honour it for clients that pass it
-            if (entry.resultMarks !== undefined && app.status === "test_taken") {
-              // already handled above; no-op
-            } else if (entry.interviewMarks !== undefined && app.status === "interview_taken") {
-              // already handled above; no-op
-            }
           }
 
           await tx.update(applicationsTable).set(updates).where(eq(applicationsTable.id, app.id));
@@ -3205,12 +3205,11 @@ router.patch(
         if (!Number.isInteger(n) || n < 0 || n > 100) {
           return res.status(400).json({ error: "resultMarks must be an integer 0–100" });
         }
-        updates.resultMarks = n;
-        // Auto-advance to test_taken whenever current status is still before that stage
+        // Marks may only be recorded once the entry test has been taken.
         if (BEFORE_TEST_TAKEN.includes(app.status)) {
-          updates.status = "test_taken";
-          events.push({ eventType: "test_taken", title: "Test Taken", description: `Entry test marks recorded: ${n}/100.` });
+          return res.status(409).json({ error: "Mark the entry test as Taken before recording marks." });
         }
+        updates.resultMarks = n;
       }
 
       if (interviewMarks !== undefined) {
