@@ -5886,9 +5886,9 @@ function EnrollmentTab() {
       defaultVisible: true,
       defaultWidth: 110,
       render: r => {
-        const s = (r as any).admissionFeeStatus as string | undefined;
+        const s = (r as any).feeStatus as string | undefined;
         if (s === "paid") {
-          return <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Verified</span>;
+          return <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Paid</span>;
         }
         if (s === "rejected") {
           return <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">Rejected</span>;
@@ -5899,8 +5899,8 @@ function EnrollmentTab() {
         return <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold bg-slate-50 text-slate-400 border border-slate-200">Pending</span>;
       },
       getText: r => {
-        const s = (r as any).admissionFeeStatus as string | undefined;
-        if (s === "paid") return "Verified";
+        const s = (r as any).feeStatus as string | undefined;
+        if (s === "paid") return "Paid";
         if (s === "rejected") return "Rejected";
         if (s === "submitted") return "Submitted";
         return "Pending";
