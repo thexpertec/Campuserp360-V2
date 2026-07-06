@@ -12,6 +12,9 @@ import {
   DEFAULT_GR_FORMAT, DEFAULT_CANDIDATE_FORMAT, PREFIX_FIELD_LABELS,
   loadPrefixPool, findPrefixConflict, type PrefixPoolEntry,
 } from "../lib/prefix-pool";
+import { loadCandidateReferencePrefix, buildReferenceId } from "../lib/reference-id.js";
+import { isApplicationLocked } from "../lib/application-lock.js";
+import { loadAdmissionsWindow, upsertAdmissionsWindow } from "../lib/admissions-window.js";
 import { db, applicationsTable, applicationEventsTable, testCentresTable, studentsTable, guardiansTable, meritConfigTable, academicYearsTable, admissionsSettingsTable, applicationDocumentsTable, employeesTable, hrLeaveRequestsTable, hrDepartmentsTable, hrAttendanceTable, employeeSalaryTransactionsTable, hostelAllocationsTable, hostelRoomsTable, hostelBlocksTable, libraryIssuesTable, medicalVisitsTable, transportVehiclesTable, storeItemsTable, feeChallansTable, classesTable, subjectsTable, examSchedulesTable, examTypesTable, batchPrintJobsTable, studentPrintRecordsTable, adminUsersTable, sectionAllocationsTable, studentEnrollmentsTable, interviewersTable, testSchedulesTable, paymentTransactionsTable, mediaLibraryTable, tenantAdminUsersTable, tenantsTable, printTemplatesTable, printSignaturesTable, bankAccountsTable, journalEntriesTable } from "@workspace/db";
 import { tryCreateAndPostJE, coaByCode, coaById, postApplicationFeeJE } from "../lib/je-factory";
 import { resolvePaymentConfig } from "../lib/payment-config-cache.js";
@@ -172,16 +175,6 @@ async function fetchTotalSeats(tenantId: string): Promise<number> {
 // Status groupings for dashboard tiles.
 // "received" = just submitted; "under_review" = docs being checked; "pending_verification" = awaiting officer sign-off
 const PENDING_STATUSES = ["received", "pending_verification", "under_review"];
-
-const REF_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function generateReferenceId(): string {
-  const year = new Date().getFullYear();
-  let suffix = "";
-  for (let i = 0; i < 6; i += 1) {
-    suffix += REF_ID_ALPHABET[Math.floor(Math.random() * REF_ID_ALPHABET.length)];
-  }
-  return `CCM-${year}-${suffix}`;
-}
 
 // ── Dashboard summary ────────────────────────────────────────────────────────
 router.get(
@@ -803,6 +796,86 @@ router.get(
   },
 );
 
+// ── Interview performa: list candidates for scoring ──────────────────────────
+// Registered before "/:referenceId" so the literal path is matched first.
+router.get(
+  "/admin/applications/interview-performa",
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const tenantId = requireTenant(req, res);
+      if (!tenantId) return;
+      const classApplying = typeof req.query.classApplying === "string" ? req.query.classApplying.trim() : undefined;
+      const q             = typeof req.query.q             === "string" ? req.query.q.trim()             : undefined;
+      const page          = Math.max(1, parseInt(String(req.query.page     ?? "1")));
+      const pageSize      = Math.min(500, Math.max(1, parseInt(String(req.query.pageSize ?? "200"))));
+
+      const INTERVIEW_STATUSES = [
+        "interview_scheduled",
+        "interview_taken",
+        "result_announced",
+        "admitted",
+        "enrolled",
+        "on_hold",
+        "rejected",
+      ];
+
+      const conditions = [
+        eq(applicationsTable.tenantId, tenantId),
+        inArray(applicationsTable.status, INTERVIEW_STATUSES),
+      ];
+      if (classApplying) conditions.push(eq(applicationsTable.classApplying, classApplying));
+      if (q) {
+        const like = `%${q}%`;
+        conditions.push(
+          or(
+            ilike(applicationsTable.referenceId, like),
+            ilike(applicationsTable.fullName,    like),
+          )!,
+        );
+      }
+
+      const where = and(...conditions);
+
+      const [{ total = 0 } = {}] = await db
+        .select({ total: count() })
+        .from(applicationsTable)
+        .where(where);
+
+      const rows = await db
+        .select({
+          referenceId:     applicationsTable.referenceId,
+          fullName:        applicationsTable.fullName,
+          fatherName:      applicationsTable.fatherName,
+          classApplying:   applicationsTable.classApplying,
+          rollNumber:      applicationsTable.rollNumber,
+          photoFilename:   applicationsTable.photoFilename,
+          occupation:      applicationsTable.occupation,
+          status:          applicationsTable.status,
+          interviewDate:   applicationsTable.interviewDate,
+          interviewVenue:  applicationsTable.interviewVenue,
+          scoreAppearance: applicationsTable.scoreAppearance,
+          scorePhysical:   applicationsTable.scorePhysical,
+          scoreConfidence: applicationsTable.scoreConfidence,
+          scoreSpoken:     applicationsTable.scoreSpoken,
+          scoreEnglish:    applicationsTable.scoreEnglish,
+          scoreGenKnow:    applicationsTable.scoreGenKnow,
+          interviewMarks:  applicationsTable.interviewMarks,
+        })
+        .from(applicationsTable)
+        .where(where)
+        .orderBy(asc(applicationsTable.rollNumber), asc(applicationsTable.referenceId))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+
+      return res.json({ items: rows, total: Number(total), page, pageSize });
+    } catch (err) {
+      req.log.error({ err }, "Failed to list interview performa");
+      return res.status(500).json({ error: "Failed to list interview performa" });
+    }
+  },
+);
+
 // ── Applications list ────────────────────────────────────────────────────────
 router.get(
   "/admin/applications",
@@ -1347,6 +1420,7 @@ router.get(
         data: await Promise.all(rows.map(async (r) => ({
           ...r,
           applicantId: r.applicantId ?? null,
+          isEnrolled: r.applicantId != null || r.status === "enrolled",
           lastClass: r.lastClass ?? null,
           yearOfLastResult: r.yearOfLastResult ?? null,
           createdAt: r.createdAt.toISOString(),
@@ -1512,14 +1586,18 @@ router.patch(
     }
     try {
       const [app] = await db
-        .select({ status: applicationsTable.status })
+        .select({
+          id: applicationsTable.id,
+          status: applicationsTable.status,
+          tenantId: applicationsTable.tenantId,
+        })
         .from(applicationsTable)
         .where(appByRef(req, referenceId))
         .limit(1);
       if (!app) {
         return res.status(404).json({ error: "Application not found" });
       }
-      if (app.status === "enrolled") {
+      if (await isApplicationLocked(app.id, app.status, app.tenantId)) {
         return res.status(409).json({ error: "Applicant is enrolled — record is locked" });
       }
       await db
@@ -1567,14 +1645,14 @@ router.patch(
     }
     try {
       const [app] = await db
-        .select({ id: applicationsTable.id, status: applicationsTable.status, docVerificationStatus: applicationsTable.docVerificationStatus })
+        .select({ id: applicationsTable.id, status: applicationsTable.status, tenantId: applicationsTable.tenantId, docVerificationStatus: applicationsTable.docVerificationStatus })
         .from(applicationsTable)
         .where(appByRef(req, referenceId))
         .limit(1);
       if (!app) {
         return res.status(404).json({ error: "Application not found" });
       }
-      if (app.status === "enrolled") {
+      if (await isApplicationLocked(app.id, app.status, app.tenantId)) {
         return res.status(409).json({ error: "Applicant is enrolled — record is locked" });
       }
       const alreadyVerified = app.docVerificationStatus === "verified";
@@ -1654,13 +1732,13 @@ router.patch(
         continue;
       }
       try {
-        const [pre] = await db.select({ id: applicationsTable.id, status: applicationsTable.status }).from(applicationsTable).where(appByRef(req, refId)).limit(1);
+        const [pre] = await db.select({ id: applicationsTable.id, status: applicationsTable.status, tenantId: applicationsTable.tenantId }).from(applicationsTable).where(appByRef(req, refId)).limit(1);
         if (!pre) {
           results.push({ referenceId: refId, success: false, error: "not found" });
           failed++;
           continue;
         }
-        if (pre.status === "enrolled") {
+        if (await isApplicationLocked(pre.id, pre.status, pre.tenantId)) {
           results.push({ referenceId: refId, success: false, error: "Applicant is enrolled — record is locked" });
           failed++;
           continue;
@@ -1726,13 +1804,13 @@ router.patch(
         continue;
       }
       try {
-        const [pre] = await db.select({ id: applicationsTable.id, status: applicationsTable.status }).from(applicationsTable).where(appByRef(req, refId)).limit(1);
+        const [pre] = await db.select({ id: applicationsTable.id, status: applicationsTable.status, tenantId: applicationsTable.tenantId }).from(applicationsTable).where(appByRef(req, refId)).limit(1);
         if (!pre) {
           results.push({ referenceId: refId, success: false, error: "not found" });
           failed++;
           continue;
         }
-        if (pre.status === "enrolled") {
+        if (await isApplicationLocked(pre.id, pre.status, pre.tenantId)) {
           results.push({ referenceId: refId, success: false, error: "Applicant is enrolled — record is locked" });
           failed++;
           continue;
@@ -1836,13 +1914,13 @@ router.patch(
         continue;
       }
       try {
-        const [pre] = await db.select({ id: applicationsTable.id, status: applicationsTable.status }).from(applicationsTable).where(appByRef(req, refId)).limit(1);
+        const [pre] = await db.select({ id: applicationsTable.id, status: applicationsTable.status, tenantId: applicationsTable.tenantId }).from(applicationsTable).where(appByRef(req, refId)).limit(1);
         if (!pre) {
           results.push({ referenceId: refId, success: false, error: "not found" });
           failed++;
           continue;
         }
-        if (pre.status === "enrolled") {
+        if (await isApplicationLocked(pre.id, pre.status, pre.tenantId)) {
           results.push({ referenceId: refId, success: false, error: "Applicant is enrolled — record is locked" });
           failed++;
           continue;
@@ -2588,9 +2666,9 @@ router.post(
             continue;
           }
 
-          // ── Admission fee gate (same as single-enroll, "block" mode) ────
-          if (feeGateMode === "block" && app.admissionFeeStatus !== "paid") {
-            results.push({ referenceId, success: false, error: "Enrollment blocked: admission fee must be verified before enrolling this cadet." });
+          // ── Application fee gate (Fee Verification tab) — "block" mode ────
+          if (feeGateMode === "block" && app.feeStatus !== "paid") {
+            results.push({ referenceId, success: false, error: "Enrollment blocked: application fee must be verified before enrolling this cadet." });
             continue;
           }
 
@@ -2600,17 +2678,7 @@ router.post(
             continue;
           }
 
-          // Prevent double-enrollment
-          const [existing] = await db
-            .select({ id: studentsTable.id })
-            .from(studentsTable)
-            .where(eq(studentsTable.applicationId, app.id))
-            .limit(1);
-          if (existing) {
-            results.push({ referenceId, success: false, error: "Applicant is already enrolled as a student" });
-            continue;
-          }
-
+          // Prevent double-enrollment (checked inside transaction for race safety)
           // Resolve section allocation (if any).
           const [sectionAlloc] = await db
             .select({ sectionId: sectionAllocationsTable.sectionId, academicYearId: sectionAllocationsTable.academicYearId })
@@ -2623,6 +2691,15 @@ router.post(
           let createdApplicantId: string | undefined;
 
           await db.transaction(async (tx) => {
+            const [existing] = await tx
+              .select({ id: studentsTable.id })
+              .from(studentsTable)
+              .where(eq(studentsTable.applicationId, app.id))
+              .limit(1);
+            if (existing) {
+              throw Object.assign(new Error("already enrolled"), { code: "ALREADY_ENROLLED" });
+            }
+
             const [student] = await tx
               .insert(studentsTable)
               .values({
@@ -2678,6 +2755,10 @@ router.post(
 
           results.push({ referenceId, success: true, applicantId: createdApplicantId ?? applicantId });
         } catch (itemErr: any) {
+          if (itemErr?.code === "ALREADY_ENROLLED") {
+            results.push({ referenceId, success: false, error: "Applicant is already enrolled as a student" });
+            continue;
+          }
           const cause1 = itemErr?.cause ?? {};
           const cause2 = cause1?.cause ?? {};
           const isDuplicate =
@@ -2764,7 +2845,7 @@ router.post(
         return res.status(400).json({ error: "classCode is required — set 'Class Applying' on the application or select a class in the enrollment dialog" });
       }
 
-      // Check admission fee gate — "block" mode prevents enrollment until fee is
+      // Check application fee gate — "block" mode prevents enrollment until fee is
       // verified, unless force=true (staff confirmed they want to proceed anyway).
       if (!force) {
         const gateKey = `admission_fee_gate:${tenantId}`;
@@ -2773,21 +2854,11 @@ router.post(
           .from(admissionsSettingsTable)
           .where(eq(admissionsSettingsTable.key, gateKey))
           .limit(1);
-        if ((gateSetting?.value ?? "warn") === "block" && app.admissionFeeStatus !== "paid") {
+        if ((gateSetting?.value ?? "warn") === "block" && app.feeStatus !== "paid") {
           return res.status(400).json({
-            error: "Enrollment blocked: the admission fee must be verified before enrolling this cadet. Go to Fee Verification to verify the payment first.",
+            error: "Enrollment blocked: the application fee must be verified before enrolling this cadet. Go to Fee Verification to verify the payment first.",
           });
         }
-      }
-
-      // Prevent double-enrollment
-      const [existing] = await db
-        .select({ id: studentsTable.id })
-        .from(studentsTable)
-        .where(eq(studentsTable.applicationId, app.id))
-        .limit(1);
-      if (existing) {
-        return res.status(409).json({ error: "This applicant has already been enrolled as a student" });
       }
 
       let createdStudent: typeof studentsTable.$inferSelect | undefined;
@@ -2832,16 +2903,20 @@ router.post(
         const canonEmail = rawEmail ? rawEmail.toLowerCase() : null;
 
         let matchedId: string | null = null;
+        const guardianTenantFilter = app.tenantId
+          ? eq(guardiansTable.tenantId, app.tenantId)
+          : isNull(guardiansTable.tenantId);
+
         if (canonCnic) {
-          const [r] = await db.select({ id: guardiansTable.id }).from(guardiansTable).where(eq(guardiansTable.cnic, canonCnic)).limit(1);
+          const [r] = await db.select({ id: guardiansTable.id }).from(guardiansTable).where(and(eq(guardiansTable.cnic, canonCnic), guardianTenantFilter)).limit(1);
           if (r) matchedId = r.id;
         }
         if (!matchedId && canonPhone) {
-          const [r] = await db.select({ id: guardiansTable.id }).from(guardiansTable).where(eq(guardiansTable.phone, canonPhone)).limit(1);
+          const [r] = await db.select({ id: guardiansTable.id }).from(guardiansTable).where(and(eq(guardiansTable.phone, canonPhone), guardianTenantFilter)).limit(1);
           if (r) matchedId = r.id;
         }
         if (!matchedId && canonEmail) {
-          const [r] = await db.select({ id: guardiansTable.id }).from(guardiansTable).where(sql`lower(${guardiansTable.email}) = ${canonEmail}`).limit(1);
+          const [r] = await db.select({ id: guardiansTable.id }).from(guardiansTable).where(and(sql`lower(${guardiansTable.email}) = ${canonEmail}`, guardianTenantFilter)).limit(1);
           if (r) matchedId = r.id;
         }
 
@@ -2867,6 +2942,15 @@ router.post(
       }
 
       await db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select({ id: studentsTable.id })
+          .from(studentsTable)
+          .where(eq(studentsTable.applicationId, app.id))
+          .limit(1);
+        if (existing) {
+          throw Object.assign(new Error("already enrolled"), { code: "ALREADY_ENROLLED" });
+        }
+
         const [student] = await tx
           .insert(studentsTable)
           .values({
@@ -2942,6 +3026,9 @@ router.post(
         return res.status(409).json({
           error: `Applicant ID ${grNum || "(unknown)"} is already in use — click Auto to get the next available number.`,
         });
+      }
+      if (err?.code === "ALREADY_ENROLLED") {
+        return res.status(409).json({ error: "This applicant has already been enrolled as a student" });
       }
       req.log.error({ err }, "Failed to enroll applicant");
       return res.status(500).json({ error: "Failed to enroll applicant" });
@@ -3057,7 +3144,7 @@ router.patch(
       if (!app) {
         return res.status(404).json({ error: "Application not found" });
       }
-      if (app.status === "enrolled") {
+      if (await isApplicationLocked(app.id, app.status, app.tenantId)) {
         return res.status(409).json({ error: "Applicant is enrolled — record is locked" });
       }
 
@@ -3112,10 +3199,19 @@ router.patch(
       const tenantId = requireTenant(req, res);
       if (!tenantId) return;
       const refIds = [...new Set(entries.map(e => e.referenceId.toUpperCase().trim()))];
-      const apps = await db
-        .select({ id: applicationsTable.id, referenceId: applicationsTable.referenceId, status: applicationsTable.status })
-        .from(applicationsTable)
-        .where(and(inArray(applicationsTable.referenceId, refIds), eq(applicationsTable.tenantId, tenantId)));
+      const [enrolledStudentRows, apps] = await Promise.all([
+        db
+          .select({ applicationId: studentsTable.applicationId })
+          .from(studentsTable)
+          .where(eq(studentsTable.tenantId, tenantId)),
+        db
+          .select({ id: applicationsTable.id, referenceId: applicationsTable.referenceId, status: applicationsTable.status })
+          .from(applicationsTable)
+          .where(and(inArray(applicationsTable.referenceId, refIds), eq(applicationsTable.tenantId, tenantId))),
+      ]);
+      const enrolledAppIds = new Set(
+        enrolledStudentRows.map((r) => r.applicationId).filter((id): id is string => !!id),
+      );
 
       const byRefId = new Map(apps.map(a => [a.referenceId.toUpperCase(), a]));
 
@@ -3128,7 +3224,7 @@ router.patch(
         for (const entry of entries) {
           const app = byRefId.get(entry.referenceId.toUpperCase().trim());
           if (!app) continue;
-          if (app.status === "enrolled") {
+          if (app.status === "enrolled" || enrolledAppIds.has(app.id)) {
             skipped.push({ referenceId: app.referenceId, reason: "enrolled — record is locked" });
             continue;
           }
@@ -3213,7 +3309,7 @@ router.patch(
         .limit(1);
 
       if (!app) return res.status(404).json({ error: "Application not found" });
-      if (app.status === "enrolled") {
+      if (await isApplicationLocked(app.id, app.status, app.tenantId)) {
         return res.status(409).json({ error: "Applicant is enrolled — their record is locked and cannot be edited." });
       }
 
@@ -3661,18 +3757,27 @@ router.post(
 
       // Roll numbers and reference IDs are stored upper-case; normalise keys to match.
       const keys = [...new Set(entries.map((e) => e.key.toUpperCase().trim()))];
-      const apps = await db
-        .select()
-        .from(applicationsTable)
-        .where(
-          and(
-            or(
-              inArray(applicationsTable.referenceId, keys),
-              inArray(applicationsTable.rollNumber, keys),
+      const [enrolledStudentRows, apps] = await Promise.all([
+        db
+          .select({ applicationId: studentsTable.applicationId })
+          .from(studentsTable)
+          .where(eq(studentsTable.tenantId, tenantId)),
+        db
+          .select()
+          .from(applicationsTable)
+          .where(
+            and(
+              or(
+                inArray(applicationsTable.referenceId, keys),
+                inArray(applicationsTable.rollNumber, keys),
+              ),
+              eq(applicationsTable.tenantId, tenantId),
             ),
-            eq(applicationsTable.tenantId, tenantId),
           ),
-        );
+      ]);
+      const enrolledAppIds = new Set(
+        enrolledStudentRows.map((r) => r.applicationId).filter((id): id is string => !!id),
+      );
 
       const byKey = new Map<string, (typeof apps)[number]>();
       for (const app of apps) {
@@ -3693,7 +3798,7 @@ router.post(
         }
         if (seen.has(app.id)) continue; // first entry wins on duplicate keys
         seen.add(app.id);
-        if (app.status === "enrolled") {
+        if (app.status === "enrolled" || enrolledAppIds.has(app.id)) {
           locked.push(e.key);
           continue;
         }
@@ -3749,10 +3854,19 @@ router.post(
       }
 
       const refIds = [...new Set(entries.map((e) => e.referenceId.toUpperCase().trim()))];
-      const apps = await db
-        .select()
-        .from(applicationsTable)
-        .where(and(inArray(applicationsTable.referenceId, refIds), eq(applicationsTable.tenantId, tenantId)));
+      const [enrolledStudentRows, apps] = await Promise.all([
+        db
+          .select({ applicationId: studentsTable.applicationId })
+          .from(studentsTable)
+          .where(eq(studentsTable.tenantId, tenantId)),
+        db
+          .select()
+          .from(applicationsTable)
+          .where(and(inArray(applicationsTable.referenceId, refIds), eq(applicationsTable.tenantId, tenantId))),
+      ]);
+      const enrolledAppIds = new Set(
+        enrolledStudentRows.map((r) => r.applicationId).filter((id): id is string => !!id),
+      );
 
       const byRef = new Map<string, (typeof apps)[number]>();
       for (const app of apps) byRef.set(app.referenceId.toUpperCase(), app);
@@ -3767,7 +3881,7 @@ router.post(
         if (!app) { notFound.push(e.referenceId); continue; }
         if (seen.has(app.id)) continue;
         seen.add(app.id);
-        if (app.status === "enrolled") {
+        if (app.status === "enrolled" || enrolledAppIds.has(app.id)) {
           locked.push(e.referenceId);
           continue;
         }
@@ -5713,18 +5827,13 @@ router.post(
 // ── Admissions window settings ────────────────────────────────────────────────
 router.get("/admin/settings/admissions-window", requireAdmin, async (req: Request, res: Response) => {
   try {
-    const rows = await db
-      .select()
-      .from(admissionsSettingsTable)
-      .where(
-        sql`${admissionsSettingsTable.key} IN ('admissions_open','admissions_deadline','admissions_session')`,
-      );
-    const map: Record<string, string> = {};
-    for (const row of rows) map[row.key] = row.value;
+    const tenantId = requireTenant(req, res);
+    if (!tenantId) return;
+    const window = await loadAdmissionsWindow(tenantId);
     return res.json({
-      open: map["admissions_open"] === "true",
-      deadline: map["admissions_deadline"] ?? null,
-      session: map["admissions_session"] ?? null,
+      open: window.open,
+      deadline: window.deadline,
+      session: window.session,
     });
   } catch (err) {
     req.log.error({ err }, "Admissions window fetch failed");
@@ -5737,15 +5846,9 @@ router.patch("/admin/settings/admissions-window", requireAdmin, async (req: Requ
     open?: boolean; deadline?: string; session?: string;
   };
   try {
-    const upsert = async (key: string, value: string) => {
-      await db
-        .insert(admissionsSettingsTable)
-        .values({ key, value })
-        .onConflictDoUpdate({ target: admissionsSettingsTable.key, set: { value, updatedAt: new Date() } });
-    };
-    if (open !== undefined) await upsert("admissions_open", open ? "true" : "false");
-    if (deadline !== undefined) await upsert("admissions_deadline", deadline);
-    if (session !== undefined) await upsert("admissions_session", session);
+    const tenantId = requireTenant(req, res);
+    if (!tenantId) return;
+    await upsertAdmissionsWindow(tenantId, { open, deadline, session });
     return res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Admissions window update failed");
@@ -6114,6 +6217,7 @@ router.post(
     const yr = new Date().getFullYear();
     const session = `${yr}-${yr + 1}`;
     const created: string[] = [];
+    const refPrefix = await loadCandidateReferencePrefix(tenantId);
 
     for (const row of rows) {
       const fullName = String(row.fullName ?? (row.firstName ? `${row.firstName} ${row.lastName ?? ""}`.trim() : "")).trim();
@@ -6134,7 +6238,7 @@ router.post(
         }
         referenceId = suppliedRefId;
       } else {
-        referenceId = generateReferenceId();
+        referenceId = buildReferenceId(refPrefix);
         for (let attempt = 0; attempt < 5; attempt++) {
           const clash = await db
             .select({ id: applicationsTable.id })
@@ -6142,7 +6246,7 @@ router.post(
             .where(appByRef(req, referenceId))
             .limit(1);
           if (clash.length === 0) break;
-          referenceId = generateReferenceId();
+          referenceId = buildReferenceId(refPrefix);
         }
       }
 
@@ -6236,85 +6340,6 @@ router.delete(
     } catch (err) {
       req.log.error({ err }, "Bulk delete applications failed");
       return res.status(500).json({ error: "Failed to delete applications" });
-    }
-  },
-);
-
-// ── Interview performa: list candidates for scoring ──────────────────────────
-router.get(
-  "/admin/applications/interview-performa",
-  requireAdmin,
-  async (req: Request, res: Response) => {
-    try {
-      const tenantId = requireTenant(req, res);
-      if (!tenantId) return;
-      const classApplying = typeof req.query.classApplying === "string" ? req.query.classApplying.trim() : undefined;
-      const q             = typeof req.query.q             === "string" ? req.query.q.trim()             : undefined;
-      const page          = Math.max(1, parseInt(String(req.query.page     ?? "1")));
-      const pageSize      = Math.min(500, Math.max(1, parseInt(String(req.query.pageSize ?? "200"))));
-
-      const INTERVIEW_STATUSES = [
-        "interview_scheduled",
-        "interview_taken",
-        "result_announced",
-        "admitted",
-        "enrolled",
-        "on_hold",
-        "rejected",
-      ];
-
-      const conditions = [
-        eq(applicationsTable.tenantId, tenantId),
-        inArray(applicationsTable.status, INTERVIEW_STATUSES),
-      ];
-      if (classApplying) conditions.push(eq(applicationsTable.classApplying, classApplying));
-      if (q) {
-        const like = `%${q}%`;
-        conditions.push(
-          or(
-            ilike(applicationsTable.referenceId, like),
-            ilike(applicationsTable.fullName,    like),
-          )!,
-        );
-      }
-
-      const where = and(...conditions);
-
-      const [{ total = 0 } = {}] = await db
-        .select({ total: count() })
-        .from(applicationsTable)
-        .where(where);
-
-      const rows = await db
-        .select({
-          referenceId:     applicationsTable.referenceId,
-          fullName:        applicationsTable.fullName,
-          fatherName:      applicationsTable.fatherName,
-          classApplying:   applicationsTable.classApplying,
-          rollNumber:      applicationsTable.rollNumber,
-          photoFilename:   applicationsTable.photoFilename,
-          occupation:      applicationsTable.occupation,
-          status:          applicationsTable.status,
-          interviewDate:   applicationsTable.interviewDate,
-          interviewVenue:  applicationsTable.interviewVenue,
-          scoreAppearance: applicationsTable.scoreAppearance,
-          scorePhysical:   applicationsTable.scorePhysical,
-          scoreConfidence: applicationsTable.scoreConfidence,
-          scoreSpoken:     applicationsTable.scoreSpoken,
-          scoreEnglish:    applicationsTable.scoreEnglish,
-          scoreGenKnow:    applicationsTable.scoreGenKnow,
-          interviewMarks:  applicationsTable.interviewMarks,
-        })
-        .from(applicationsTable)
-        .where(where)
-        .orderBy(asc(applicationsTable.rollNumber), asc(applicationsTable.referenceId))
-        .limit(pageSize)
-        .offset((page - 1) * pageSize);
-
-      return res.json({ items: rows, total: Number(total), page, pageSize });
-    } catch (err) {
-      req.log.error({ err }, "Failed to list interview performa");
-      return res.status(500).json({ error: "Failed to list interview performa" });
     }
   },
 );

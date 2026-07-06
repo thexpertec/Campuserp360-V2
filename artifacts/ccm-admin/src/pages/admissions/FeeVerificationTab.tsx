@@ -70,7 +70,7 @@ const ALL_STATUS   = "__all_status__";
 const FEE_TYPE_OPTIONS = [
   { value: ALL_FEE_TYPE, label: "All Fees"        },
   { value: "app",        label: "Application Fee" },
-  { value: "admission",  label: "Application Fee"   },
+  { value: "admission",  label: "Admission Fee"   },
 ];
 
 const STATUS_FILTER_OPTIONS = [
@@ -137,7 +137,7 @@ async function admFeeAction(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as any).error ?? "Failed to update application fee");
+    throw new Error((body as any).error ?? "Failed to update admission fee");
   }
 }
 
@@ -229,7 +229,7 @@ function AdmFeeActions({ referenceId, row, onDone }: {
     mutationFn: (vars: { action: "verify" | "reject" | "revert"; opts?: { amount?: number; bankRef?: string; reason?: string } }) =>
       admFeeAction(referenceId, vars.action, vars.opts),
     onSuccess: (_d, vars) => {
-      const labels = { verify: "Application fee verified", reject: "Application fee rejected", revert: "Status reverted to pending" };
+      const labels = { verify: "Admission fee verified", reject: "Admission fee rejected", revert: "Status reverted to pending" };
       toast({ title: labels[vars.action] });
       setVerifyOpen(false);
       setRejectOpen(false);
