@@ -2,15 +2,19 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useListAdminAcademicYears } from "@workspace/api-client-react";
 import { format, parseISO, isValid } from "date-fns";
+import {
+  DndContext, DragEndEvent, PointerSensor, useSensor, useSensors,
+  useDraggable, useDroppable,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { getToken } from "@/lib/auth";
-import { formatDate } from "@/lib/locale";
 import { fetchPrintSettings, buildPrintHtml, escapeHtml, printHtmlDocument } from "@/lib/print-utils";
 import {
-  Plus, Trash2, Download, Printer, RefreshCw, Save, LayoutGrid, Calendar as CalendarIcon,
+  Plus, X, Printer, RefreshCw, Save, LayoutGrid, Shuffle,
+  Calendar as CalendarIcon, GripVertical,
 } from "lucide-react";
 import { ClassRecord, AcademicYear, SessionSelect } from "./ExamSelectors";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
@@ -20,22 +24,21 @@ import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface ExamType  { id: string; name: string; }
-interface Subject   { id: string; code: string; name: string; maxMarks?: number; passMarks?: number; }
+interface ExamType { id: string; name: string; }
+interface Subject  { id: string; code: string; name: string; maxMarks?: number; passMarks?: number; }
 
-interface GridRow {
-  _key:        string;
+interface SubjectCard {
   subjectCode: string;
   subjectName: string;
-  examDate:    string;
   totalMarks:  number;
   passMarks:   number;
-  venue:       string;
+  venue:       string | null;
 }
 
-function makeRow(): GridRow {
-  return { _key: crypto.randomUUID(), subjectCode: "", subjectName: "", examDate: "", totalMarks: 100, passMarks: 33, venue: "" };
-}
+interface DateColumn { _key: string; date: string; }
+
+/** classCode -> one cell per column (card or empty) */
+type GridState = Record<string, (SubjectCard | null)[]>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -53,87 +56,145 @@ async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   return res.json();
 }
 
-function fmtDate(s?: string | null) {
-  if (!s) return "—";
-  return formatDate(s);
+function newCol(date = ""): DateColumn {
+  return { _key: crypto.randomUUID(), date };
 }
 
-// ── Date picker cell ───────────────────────────────────────────────────────────
+function parseDay(date: string) {
+  if (!date) return undefined;
+  const d = parseISO(date);
+  return isValid(d) ? d : undefined;
+}
 
-function DateCell({
-  value, onChange, invalid,
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// ── Column date header ────────────────────────────────────────────────────────
+
+function ColumnHeader({
+  col, onDateChange, onRemove, removable,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  invalid?: boolean;
+  col: DateColumn;
+  onDateChange: (v: string) => void;
+  onRemove: () => void;
+  removable: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const parsed = value ? parseISO(value) : undefined;
-  const valid = parsed && isValid(parsed);
+  const day = parseDay(col.date);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
+    <div className="flex flex-col items-stretch gap-0.5 min-w-32">
+      <div className="flex items-center gap-1">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                "h-7 flex-1 justify-start text-xs font-semibold gap-1.5 px-2",
+                !day && "text-muted-foreground font-normal",
+              )}
+            >
+              <CalendarIcon className="h-3 w-3 shrink-0 opacity-60" />
+              {day ? format(day, "MMM-dd") : "Pick date"}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="p-0 w-auto" align="start">
+            <Calendar
+              mode="single"
+              selected={day}
+              onSelect={(d) => { if (d) { onDateChange(format(d, "yyyy-MM-dd")); setOpen(false); } }}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={!removable}
+          title={removable ? "Remove this day" : "Move the subjects out of this column first"}
           className={cn(
-            "h-8 w-36 justify-start text-xs font-normal gap-1.5",
-            !valid && "text-muted-foreground",
-            invalid && "border-red-400 ring-1 ring-red-200",
+            "rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-50",
+            !removable && "opacity-30 cursor-not-allowed hover:text-muted-foreground hover:bg-transparent",
           )}
         >
-          <CalendarIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
-          {valid ? format(parsed!, "dd MMM yyyy") : "Pick date"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="p-0 w-auto" align="start">
-        <Calendar
-          mode="single"
-          selected={valid ? parsed : undefined}
-          onSelect={(d) => { if (d) { onChange(format(d, "yyyy-MM-dd")); setOpen(false); } }}
-          initialFocus
-        />
-      </PopoverContent>
-    </Popover>
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <span className={cn("text-[11px] font-medium text-center", day ? "text-violet-600" : "text-muted-foreground/60")}>
+        {day ? format(day, "EEEE") : "no date"}
+      </span>
+    </div>
   );
 }
 
-// ── Subject row cell ──────────────────────────────────────────────────────────
+// ── Draggable subject card ────────────────────────────────────────────────────
 
-function SubjectSelect({
-  value, onChange, subjects, disabled, invalid,
+function DraggableCard({
+  id, card, classCode, col, dateless,
 }: {
-  value: string;
-  onChange: (code: string, name: string) => void;
-  subjects: Subject[];
-  disabled?: boolean;
-  invalid?: boolean;
+  id: string;
+  card: SubjectCard;
+  classCode: string;
+  col: number;
+  dateless: boolean;
 }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id,
+    data: { classCode, col },
+  });
   return (
-    <Select
-      value={value || "__none__"}
-      onValueChange={v => {
-        if (v === "__none__") { onChange("", ""); return; }
-        const sub = subjects.find(s => s.code === v);
-        onChange(v, sub?.name ?? v);
-      }}
-      disabled={disabled || subjects.length === 0}
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{ transform: CSS.Translate.toString(transform) }}
+      className={cn(
+        "flex items-center gap-1 rounded-md border bg-card px-1.5 py-1 text-xs shadow-sm cursor-grab active:cursor-grabbing select-none touch-none",
+        isDragging && "opacity-70 z-50 relative shadow-md ring-2 ring-violet-300",
+        dateless ? "border-amber-400 bg-amber-50" : "border-border",
+      )}
+      title={dateless ? `${card.subjectName} — place in a column with a date before saving` : card.subjectName}
     >
-      <SelectTrigger className={cn(
-        "h-8 text-xs border bg-transparent focus:ring-1 rounded-sm min-w-36",
-        invalid ? "border-red-400 ring-1 ring-red-200" : "border-transparent",
-      )}>
-        <SelectValue placeholder={subjects.length === 0 ? "Select class first…" : "Subject…"} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__none__">— Select —</SelectItem>
-        {subjects.map(s => (
-          <SelectItem key={s.code} value={s.code}>
-            {s.name} <span className="text-muted-foreground text-xs ml-1">{s.code}</span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+      <span className="truncate font-medium">{card.subjectName || card.subjectCode}</span>
+    </div>
+  );
+}
+
+// ── Droppable grid cell ───────────────────────────────────────────────────────
+
+function GridCell({
+  classCode, col, card, dateless,
+}: {
+  classCode: string;
+  col: number;
+  card: SubjectCard | null;
+  dateless: boolean;
+}) {
+  const id = `cell:${classCode}:${col}`;
+  const { setNodeRef, isOver, active } = useDroppable({ id, data: { classCode, col } });
+  const sameRow = (active?.data.current as any)?.classCode === classCode;
+  return (
+    <td className="px-1 py-1 align-middle border-l border-border/50">
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "min-h-8 min-w-32 rounded-md flex items-stretch justify-stretch transition-colors",
+          !card && "border border-dashed border-border/60",
+          isOver && sameRow && "bg-violet-50 border-violet-400",
+          isOver && !sameRow && "bg-red-50/60",
+        )}
+      >
+        {card
+          ? <DraggableCard id={id} card={card} classCode={classCode} col={col} dateless={dateless} />
+          : <span className="flex-1" />}
+      </div>
+    </td>
   );
 }
 
@@ -144,18 +205,18 @@ export function ExamsMasterDateSheetTab() {
 
   // ── Selector state
   const [examTypeId, setExamTypeId] = useState<string>("__none__");
-  const [classCode, setClassCode]   = useState<string>("");
   const [session, setSession]       = useState<string>("");
   const [academicYearId, setAcademicYearId] = useState<string | null>(null);
 
   // ── Grid state
-  const [rows, setRows] = useState<GridRow[]>([makeRow()]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [subjectsLoading, setSubjectsLoading] = useState(false);
+  const [columns, setColumns] = useState<DateColumn[]>([]);
+  const [grid, setGrid]       = useState<GridState>({});
 
   // ── UI state
-  const [saving, setSaving]  = useState(false);
+  const [saving, setSaving]   = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   // ── Data fetching
   const { data: typesRaw = [] } = useQuery<ExamType[]>({
@@ -184,102 +245,228 @@ export function ExamsMasterDateSheetTab() {
     preFilled.current = true;
   }, [academicYears]);
 
-  // Fetch subjects for the selected class
-  const fetchSubjects = useCallback(async (code: string) => {
-    if (!code) { setSubjects([]); return; }
-    setSubjectsLoading(true);
-    try {
-      const list = await apiFetch<Subject[]>(`/api/admin/subjects?classCode=${encodeURIComponent(code)}`).catch(() => [] as Subject[]);
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      setSubjects(list);
-    } finally {
-      setSubjectsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void fetchSubjects(classCode); }, [classCode, fetchSubjects]);
-
-  // ── Row helpers
-  function addRow() { setRows(r => [...r, makeRow()]); }
-  function removeRow(key: string) { setRows(r => r.filter(x => x._key !== key)); }
-  function setField<K extends keyof GridRow>(key: string, field: K, value: GridRow[K]) {
-    setRows(r => r.map(x => x._key === key ? { ...x, [field]: value } : x));
-  }
-
-  // ── Row validation
-  const rowStarted  = (r: GridRow) => !!(r.examDate || r.subjectCode || r.venue.trim());
-  const rowComplete = (r: GridRow) => !!r.examDate && !!r.subjectCode && r.totalMarks > 0 && r.passMarks > 0;
-  const completeRows = rows.filter(rowComplete);
-  const hasIncompleteStarted = rows.some(r => rowStarted(r) && !rowComplete(r));
-
-  // ── Load existing schedules for selected combination
-  async function handleLoad() {
-    if (!classCode || !session) {
-      toast({ variant: "destructive", title: "Select a class and a session to load." });
-      return;
-    }
+  // ── Build the grid: all classes × their subjects, dates from saved datesheets
+  const buildVersion = useRef(0);
+  const buildGrid = useCallback(async () => {
+    if (classes.length === 0 || !session) return;
+    const version = ++buildVersion.current;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ classCode, sessionLabel: session });
-      if (examTypeId && examTypeId !== "__none__") params.set("examTypeId", examTypeId);
-      const data = await apiFetch<any[]>(`/api/admin/exams/schedules?${params}`);
-      if (data.length === 0) {
-        toast({ title: "No existing datesheet found", description: "Grid is ready for new entries." });
-        return;
-      }
-      setRows(data.map(s => ({
-        _key:        crypto.randomUUID(),
-        subjectCode: s.subjectCode,
-        subjectName: s.subjectName ?? s.subjectCode,
-        examDate:    s.examDate ?? "",
-        totalMarks:  s.totalMarks,
-        passMarks:   s.passMarks,
-        venue:       s.venue ?? "",
-      })));
-      toast({ title: `Loaded ${data.length} row${data.length !== 1 ? "s" : ""}`, description: `From class ${classCode} — ${session}` });
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Load failed", description: e.message });
-    } finally {
-      setLoading(false);
-    }
-  }
+      const perClass = await Promise.all(classes.map(async c => {
+        const subjParams = new URLSearchParams({ classCode: c.code });
+        const schedParams = new URLSearchParams({ classCode: c.code, sessionLabel: session });
+        if (examTypeId !== "__none__") schedParams.set("examTypeId", examTypeId);
+        const [subjects, schedulesRaw] = await Promise.all([
+          apiFetch<Subject[]>(`/api/admin/subjects?${subjParams}`).catch(() => [] as Subject[]),
+          apiFetch<any[]>(`/api/admin/exams/schedules?${schedParams}`).catch(() => [] as any[]),
+        ]);
+        // "None" exam type saves to the null-type scope, so only load
+        // null-type schedules (the API returns all types when the filter is omitted).
+        const schedules = examTypeId === "__none__"
+          ? schedulesRaw.filter(s => s.examTypeId == null)
+          : schedulesRaw;
+        return { classCode: c.code, subjects, schedules };
+      }));
 
-  // ── Save master datesheet
-  async function handleSave() {
-    if (!classCode) { toast({ variant: "destructive", title: "Select a class." });   return; }
-    if (!session)   { toast({ variant: "destructive", title: "Select a session." }); return; }
-    if (hasIncompleteStarted) {
-      toast({ variant: "destructive", title: "Complete every row", description: "Each row needs a Date, Subject, Total Marks and Pass Marks." });
+      // A newer load started while this one was in flight — discard this result.
+      if (version !== buildVersion.current) return;
+
+      // Distinct saved dates (sorted) become the initial columns
+      const dateSet = new Set<string>();
+      for (const pc of perClass) {
+        for (const s of pc.schedules) {
+          const d = (s.examDate ?? "").slice(0, 10);
+          if (d) dateSet.add(d);
+        }
+      }
+      const dates = [...dateSet].sort();
+      const maxSubjects = Math.max(0, ...perClass.map(pc => pc.subjects.length));
+      const colCount = Math.max(dates.length, maxSubjects);
+      const cols: DateColumn[] = [];
+      for (let i = 0; i < colCount; i++) cols.push(newCol(dates[i] ?? ""));
+      cols.push(newCol("")); // spare column for rearranging
+      const dateToCol = new Map(cols.map((c, i) => [c.date, i] as const).filter(([d]) => d));
+
+      const nextGrid: GridState = {};
+      for (const pc of perClass) {
+        const row: (SubjectCard | null)[] = Array(cols.length).fill(null);
+        const placed = new Set<string>();
+
+        // 1. Place saved schedule entries at their date column
+        for (const s of pc.schedules) {
+          if (!s.subjectCode || placed.has(s.subjectCode)) continue;
+          const card: SubjectCard = {
+            subjectCode: s.subjectCode,
+            subjectName: s.subjectName ?? s.subjectCode,
+            totalMarks:  s.totalMarks ?? 100,
+            passMarks:   s.passMarks ?? 33,
+            venue:       s.venue ?? null,
+          };
+          const d = (s.examDate ?? "").slice(0, 10);
+          let idx = d ? dateToCol.get(d) : undefined;
+          if (idx === undefined || row[idx]) idx = row.findIndex(c => c === null);
+          if (idx !== undefined && idx >= 0) { row[idx] = card; placed.add(s.subjectCode); }
+        }
+
+        // 2. Fill in the class's remaining subjects
+        const rest = [...pc.subjects].sort((a, b) => a.name.localeCompare(b.name));
+        for (const sub of rest) {
+          if (placed.has(sub.code)) continue;
+          const idx = row.findIndex(c => c === null);
+          if (idx < 0) break;
+          row[idx] = {
+            subjectCode: sub.code,
+            subjectName: sub.name,
+            totalMarks:  sub.maxMarks ?? 100,
+            passMarks:   sub.passMarks ?? 33,
+            venue:       null,
+          };
+          placed.add(sub.code);
+        }
+        nextGrid[pc.classCode] = row;
+      }
+
+      setColumns(cols);
+      setGrid(nextGrid);
+    } catch (e: any) {
+      if (version === buildVersion.current) {
+        toast({ variant: "destructive", title: "Failed to load grid", description: e.message });
+      }
+    } finally {
+      if (version === buildVersion.current) setLoading(false);
+    }
+  }, [classes, session, examTypeId]);
+
+  // Rebuild only when the actual selection changes (not on background refetches
+  // that produce a new array identity for the same classes).
+  const classesKey = classes.map(c => c.code).join(",");
+  const buildGridRef = useRef(buildGrid);
+  buildGridRef.current = buildGrid;
+  useEffect(() => {
+    void buildGridRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classesKey, session, examTypeId]);
+
+  // Always keep one fully-empty spare column at the end
+  useEffect(() => {
+    if (columns.length === 0) return;
+    const lastIdx = columns.length - 1;
+    const lastUsed = Object.values(grid).some(row => row[lastIdx]);
+    if (lastUsed || columns[lastIdx].date) {
+      setColumns(cs => [...cs, newCol("")]);
+      setGrid(g => Object.fromEntries(Object.entries(g).map(([k, row]) => [k, [...row, null]])));
+    }
+  }, [grid, columns]);
+
+  // ── Column ops
+  function setColumnDate(idx: number, date: string) {
+    setColumns(cs => cs.map((c, i) => i === idx ? { ...c, date } : c));
+  }
+  function addColumn() {
+    setColumns(cs => [...cs, newCol("")]);
+    setGrid(g => Object.fromEntries(Object.entries(g).map(([k, row]) => [k, [...row, null]])));
+  }
+  function removeColumn(idx: number) {
+    setColumns(cs => cs.filter((_, i) => i !== idx));
+    setGrid(g => Object.fromEntries(Object.entries(g).map(([k, row]) => [k, row.filter((_, i) => i !== idx)])));
+  }
+  const columnEmpty = (idx: number) => !Object.values(grid).some(row => row[idx]);
+
+  // ── Drag & drop: swap cells within the same class row
+  function handleDragEnd(e: DragEndEvent) {
+    const from = e.active.data.current as { classCode: string; col: number } | undefined;
+    const to   = e.over?.data.current as { classCode: string; col: number } | undefined;
+    if (!from || !to) return;
+    if (from.classCode !== to.classCode) {
+      toast({ variant: "destructive", title: "Subjects can only move within their own class row." });
       return;
     }
-    if (completeRows.length === 0) {
-      toast({ variant: "destructive", title: "Add at least one row", description: "Fill Date, Subject, Total Marks and Pass Marks." });
+    if (from.col === to.col) return;
+    setGrid(g => {
+      const row = [...(g[from.classCode] ?? [])];
+      [row[from.col], row[to.col]] = [row[to.col], row[from.col]];
+      return { ...g, [from.classCode]: row };
+    });
+  }
+
+  // ── Shuffle: random permutation of each class's subjects across its occupied cells
+  function handleShuffle() {
+    setGrid(g => {
+      const next: GridState = {};
+      for (const [cc, row] of Object.entries(g)) {
+        const idxs = row.map((c, i) => (c ? i : -1)).filter(i => i >= 0);
+        const cards = shuffleInPlace(idxs.map(i => row[i]!));
+        const newRow = [...row];
+        idxs.forEach((colIdx, k) => { newRow[colIdx] = cards[k]; });
+        next[cc] = newRow;
+      }
+      return next;
+    });
+  }
+
+  // ── Validation
+  const placedCount   = Object.values(grid).reduce((n, row) => n + row.filter(Boolean).length, 0);
+  const datelessCount = Object.values(grid).reduce(
+    (n, row) => n + row.filter((c, i) => c && !columns[i]?.date).length, 0,
+  );
+
+  // ── Save the whole grid (one request per class — rows differ per class)
+  async function handleSave() {
+    if (!session)         { toast({ variant: "destructive", title: "Select a session." }); return; }
+    if (placedCount === 0){ toast({ variant: "destructive", title: "Nothing to save." });  return; }
+    if (datelessCount > 0){
+      toast({
+        variant: "destructive",
+        title: "Every subject needs a date",
+        description: `${datelessCount} subject${datelessCount !== 1 ? "s are" : " is"} in a column without a date (highlighted in amber). Pick a date or move them.`,
+      });
       return;
     }
 
     setSaving(true);
     try {
-      const result = await apiFetch<{ created: number; updated: number; skipped: number; message: string }>(
-        "/api/admin/exams/schedules/bulk-master",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            examTypeId:    examTypeId === "__none__" ? null : examTypeId,
-            sessionLabel:  session,
-            academicYearId,
-            classCodes:    [classCode],
-            rows:          completeRows.map(r => ({
-              subjectCode: r.subjectCode,
-              subjectName: r.subjectName || null,
-              examDate:    r.examDate || null,
-              totalMarks:  r.totalMarks,
-              passMarks:   r.passMarks,
-              venue:       r.venue || null,
-            })),
-          }),
-        },
-      );
-      toast({ title: "Datesheet saved", description: result.message });
+      const payloads = classes
+        .map(c => {
+          const row = grid[c.code] ?? [];
+          const rows = row
+            .map((card, i) => card && columns[i]?.date
+              ? {
+                  subjectCode: card.subjectCode,
+                  subjectName: card.subjectName || null,
+                  examDate:    columns[i].date,
+                  totalMarks:  card.totalMarks,
+                  passMarks:   card.passMarks,
+                  venue:       card.venue,
+                }
+              : null)
+            .filter((r): r is NonNullable<typeof r> => r !== null);
+          return { classCode: c.code, rows };
+        })
+        .filter(p => p.rows.length > 0);
+
+      const results = await Promise.all(payloads.map(p =>
+        apiFetch<{ created: number; updated: number; skipped: number }>(
+          "/api/admin/exams/schedules/bulk-master",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              examTypeId:   examTypeId === "__none__" ? null : examTypeId,
+              sessionLabel: session,
+              academicYearId,
+              classCodes:   [p.classCode],
+              rows:         p.rows,
+            }),
+          },
+        ),
+      ));
+
+      const created = results.reduce((n, r) => n + r.created, 0);
+      const updated = results.reduce((n, r) => n + r.updated, 0);
+      const skipped = results.reduce((n, r) => n + r.skipped, 0);
+      toast({
+        title: "Datesheet saved",
+        description: `${created + updated} entries across ${payloads.length} class${payloads.length !== 1 ? "es" : ""} (${created} new, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}).`,
+      });
       qc.invalidateQueries({ queryKey: ["exam-schedules"] });
       qc.invalidateQueries({ queryKey: ["exam-schedules-datesheet"] });
     } catch (e: any) {
@@ -289,57 +476,61 @@ export function ExamsMasterDateSheetTab() {
     }
   }
 
-  // ── Print
+  // ── Print: classes × dates grid, matching the on-screen layout
   async function handlePrint() {
-    if (completeRows.length === 0) { toast({ variant: "destructive", title: "Nothing to print." }); return; }
+    const usedCols = columns
+      .map((c, i) => ({ ...c, i }))
+      .filter(c => c.date && Object.values(grid).some(row => row[c.i]));
+    if (usedCols.length === 0) { toast({ variant: "destructive", title: "Nothing to print — assign dates first." }); return; }
 
     const typeLabel = types.find(t => t.id === examTypeId)?.name ?? "";
-    const classLabel = classCode || "—";
-    const subtitle = [typeLabel, classLabel && `Class: ${classLabel}`, session].filter(Boolean).join("  ·  ");
+    const subtitle = [typeLabel, session].filter(Boolean).join("  ·  ");
+
+    const th = (txt: string) =>
+      `<th style="background:#f1f5f9;font-weight:700;text-align:left;padding:6px 8px;border:1px solid #cbd5e1;font-size:10px">${txt}</th>`;
 
     const tableHtml = `
 <p style="font-size:12px;color:#555;margin-bottom:8px">${escapeHtml(subtitle)}</p>
 <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:11px">
   <thead>
-    <tr>${["Date","Subject","Total Marks","Pass Marks","Venue"].map(h =>
-      `<th style="background:#f1f5f9;font-weight:700;text-align:left;padding:6px 8px;border-bottom:2px solid #cbd5e1;font-size:10px;text-transform:uppercase;letter-spacing:.05em">${h}</th>`
-    ).join("")}</tr>
+    <tr>${th("")}${usedCols.map(c => th(escapeHtml(format(parseDay(c.date)!, "MMM-dd")))).join("")}</tr>
+    <tr>${th("Class")}${usedCols.map(c => th(escapeHtml(format(parseDay(c.date)!, "EEEE")))).join("")}</tr>
   </thead>
   <tbody>
-    ${completeRows.map((r, i) =>
-      `<tr style="${i % 2 === 1 ? "background:#f8fafc" : ""}">
-        <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;white-space:nowrap">${r.examDate ? escapeHtml(fmtDate(r.examDate)) : "TBD"}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${escapeHtml(r.subjectName || r.subjectCode)}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:right">${r.totalMarks}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:right">${r.passMarks}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">${r.venue ? escapeHtml(r.venue) : "—"}</td>
-      </tr>`
-    ).join("")}
+    ${classes.map((cls, ri) => {
+      const row = grid[cls.code] ?? [];
+      if (!row.some(Boolean)) return "";
+      return `<tr style="${ri % 2 === 1 ? "background:#f8fafc" : ""}">
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-weight:700;white-space:nowrap">${escapeHtml(cls.name)}</td>
+        ${usedCols.map(c => {
+          const card = row[c.i];
+          return `<td style="padding:5px 8px;border:1px solid #e2e8f0">${card ? escapeHtml(card.subjectName || card.subjectCode) : "—"}</td>`;
+        }).join("")}
+      </tr>`;
+    }).join("")}
   </tbody>
 </table>`;
 
     const settings = await fetchPrintSettings();
-    const html = buildPrintHtml(tableHtml, settings, "Master Datesheet");
+    const html = buildPrintHtml(tableHtml, { ...settings, orientation: "landscape" }, "Master Datesheet");
     printHtmlDocument(html);
   }
-
-  const hasSelection = !!classCode && !!session;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
 
-      {/* ── Header controls (single row) ──────────────────────────────────── */}
+      {/* ── Header controls ───────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <div className="px-5 py-3 bg-muted/30 border-b border-border flex items-center gap-2">
           <LayoutGrid className="h-4 w-4 text-violet-500" />
           <span className="text-sm font-semibold text-foreground">Datesheet Parameters</span>
           <span className="ml-auto text-xs text-muted-foreground">
-            One class, one datesheet
+            All classes on one grid — drag subjects to rearrange
           </span>
         </div>
 
-        <div className="px-5 py-4 flex flex-wrap items-start gap-x-6 gap-y-4">
+        <div className="px-5 py-4 flex flex-wrap items-end gap-x-6 gap-y-4">
           {/* Exam Type */}
           <div className="flex-1 min-w-44 max-w-56">
             <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Exam Type</Label>
@@ -350,29 +541,6 @@ export function ExamsMasterDateSheetTab() {
               <SelectContent>
                 <SelectItem value="__none__">— None —</SelectItem>
                 {types.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Class (single) */}
-          <div className="flex-1 min-w-52 max-w-64">
-            <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Class *</Label>
-            <Select
-              value={classCode || "__none__"}
-              onValueChange={v => setClassCode(v === "__none__" ? "" : v)}
-              disabled={classesLoading}
-            >
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder={classesLoading ? "Loading…" : "Select class…"} />
-              </SelectTrigger>
-              <SelectContent className="max-h-64">
-                <SelectItem value="__none__">— Select class —</SelectItem>
-                {classes.map(c => (
-                  <SelectItem key={c.code} value={c.code}>
-                    <span className="font-medium">{c.code}</span>
-                    <span className="ml-2 text-muted-foreground text-xs">{c.name}</span>
-                  </SelectItem>
-                ))}
               </SelectContent>
             </Select>
           </div>
@@ -392,17 +560,15 @@ export function ExamsMasterDateSheetTab() {
             />
           </div>
 
-          {/* Load button */}
-          <div className="flex items-end pb-0.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 gap-1.5"
-              onClick={handleLoad}
-              disabled={!hasSelection || loading}
-            >
-              {loading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-              Load Existing
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void buildGrid()} disabled={loading || !session}>
+              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Reload
+            </Button>
+            <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleShuffle} disabled={loading || placedCount === 0}>
+              <Shuffle className="h-3.5 w-3.5" /> Shuffle
+            </Button>
+            <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={addColumn} disabled={loading || columns.length === 0}>
+              <Plus className="h-3.5 w-3.5" /> Add Day
             </Button>
           </div>
         </div>
@@ -413,119 +579,80 @@ export function ExamsMasterDateSheetTab() {
         <div className="px-5 py-3 bg-muted/30 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Exam Schedule Grid</span>
-            {subjectsLoading && (
+            {loading && (
               <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <RefreshCw className="h-3 w-3 animate-spin" /> Loading subjects…
+                <RefreshCw className="h-3 w-3 animate-spin" /> Loading…
               </span>
             )}
           </div>
-          <span className="text-xs text-muted-foreground">{rows.length} row{rows.length !== 1 ? "s" : ""}</span>
+          <span className="text-xs text-muted-foreground">
+            {classes.length} class{classes.length !== 1 ? "es" : ""} · {placedCount} subject{placedCount !== 1 ? "s" : ""}
+          </span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/20">
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground whitespace-nowrap w-40">Date <span className="text-red-400">*</span></th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Subject <span className="text-red-400">*</span></th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground w-24">Total Marks <span className="text-red-400">*</span></th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground w-24">Pass Marks <span className="text-red-400">*</span></th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground w-44">Venue</th>
-                <th className="px-2 py-2 w-8" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rows.map((row, idx) => {
-                const started = rowStarted(row);
-                return (
-                <tr key={row._key} className={cn("group", idx % 2 === 1 ? "bg-muted/10" : "")}>
-                  {/* Date */}
-                  <td className="px-2 py-1.5">
-                    <DateCell
-                      value={row.examDate}
-                      onChange={v => setField(row._key, "examDate", v)}
-                      invalid={started && !row.examDate}
-                    />
-                  </td>
-                  {/* Subject */}
-                  <td className="px-2 py-1.5">
-                    <SubjectSelect
-                      value={row.subjectCode}
-                      subjects={subjects}
-                      disabled={subjectsLoading}
-                      invalid={started && !row.subjectCode}
-                      onChange={(code, name) => {
-                        const sub = subjects.find(s => s.code === code);
-                        setRows(rs => rs.map(r => r._key === row._key
-                          ? {
-                              ...r,
-                              subjectCode: code,
-                              subjectName: name,
-                              totalMarks: sub?.maxMarks ?? r.totalMarks,
-                              passMarks:  sub?.passMarks ?? r.passMarks,
-                            }
-                          : r,
-                        ));
-                      }}
-                    />
-                  </td>
-                  {/* Total Marks */}
-                  <td className="px-2 py-1.5">
-                    <Input
-                      type="number"
-                      min={1}
-                      value={row.totalMarks}
-                      onChange={e => setField(row._key, "totalMarks", Number(e.target.value))}
-                      className={cn("h-8 text-xs w-20 text-center font-mono", started && !(row.totalMarks > 0) && "border-red-400 ring-1 ring-red-200")}
-                    />
-                  </td>
-                  {/* Pass Marks */}
-                  <td className="px-2 py-1.5">
-                    <Input
-                      type="number"
-                      min={1}
-                      value={row.passMarks}
-                      onChange={e => setField(row._key, "passMarks", Number(e.target.value))}
-                      className={cn("h-8 text-xs w-20 text-center font-mono", started && !(row.passMarks > 0) && "border-red-400 ring-1 ring-red-200")}
-                    />
-                  </td>
-                  {/* Venue */}
-                  <td className="px-2 py-1.5">
-                    <Input
-                      placeholder="e.g. Main Hall"
-                      value={row.venue}
-                      onChange={e => setField(row._key, "venue", e.target.value)}
-                      className="h-8 text-xs w-40"
-                    />
-                  </td>
-                  {/* Delete */}
-                  <td className="px-2 py-1.5">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 hover:bg-red-50 transition-opacity"
-                      onClick={() => removeRow(row._key)}
-                      disabled={rows.length === 1}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {classes.length > 0 && columns.length > 0 ? (
+          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+            <div className="overflow-x-auto">
+              <table className="text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-border bg-muted/20">
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground sticky left-0 bg-muted/20 backdrop-blur z-10 min-w-28">
+                      Class
+                    </th>
+                    {columns.map((col, i) => (
+                      <th key={col._key} className="px-1.5 py-2 border-l border-border/50 align-top">
+                        <ColumnHeader
+                          col={col}
+                          onDateChange={v => setColumnDate(i, v)}
+                          onRemove={() => removeColumn(i)}
+                          removable={columnEmpty(i)}
+                        />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {classes.map((cls, idx) => {
+                    const row = grid[cls.code] ?? [];
+                    return (
+                      <tr key={cls.code} className={cn(idx % 2 === 1 ? "bg-muted/10" : "")}>
+                        <td className="px-3 py-1.5 sticky left-0 bg-card z-10 whitespace-nowrap">
+                          <span className="text-xs font-bold text-foreground">{cls.name}</span>
+                          <span className="ml-1.5 text-[10px] text-muted-foreground">{cls.code}</span>
+                        </td>
+                        {columns.map((col, i) => (
+                          <GridCell
+                            key={col._key}
+                            classCode={cls.code}
+                            col={i}
+                            card={row[i] ?? null}
+                            dateless={!!row[i] && !col.date}
+                          />
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </DndContext>
+        ) : (
+          <div className="py-12 text-center text-sm text-muted-foreground">
+            {classesLoading || loading
+              ? "Loading…"
+              : !session
+                ? "Select a session to build the grid."
+                : "No classes configured yet."}
+          </div>
+        )}
 
-        {/* Add row + footer */}
-        <div className="px-4 py-2.5 border-t border-border bg-muted/10 flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground" onClick={addRow}>
-            <Plus className="h-3.5 w-3.5" /> Add Row
-          </Button>
+        {/* Footer */}
+        <div className="px-4 py-2.5 border-t border-border bg-muted/10 flex items-center gap-3 text-xs text-muted-foreground">
+          <span>Drag a subject onto another cell in the same row to swap. The last empty column is spare space.</span>
           <span className="flex-1" />
-          {completeRows.length > 0 && classCode && (
-            <span className="text-xs text-muted-foreground">
-              Will save <strong>{completeRows.length}</strong> subject{completeRows.length !== 1 ? "s" : ""} for class <strong>{classCode}</strong>
+          {datelessCount > 0 && (
+            <span className="text-amber-600 font-medium">
+              {datelessCount} subject{datelessCount !== 1 ? "s" : ""} in a column without a date
             </span>
           )}
         </div>
@@ -533,29 +660,20 @@ export function ExamsMasterDateSheetTab() {
 
       {/* ── Action buttons ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-end gap-2">
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrint} disabled={completeRows.length === 0}>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrint} disabled={placedCount === 0}>
           <Printer className="h-3.5 w-3.5" /> Print
         </Button>
         <Button
           size="sm"
           className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
           onClick={handleSave}
-          disabled={saving || !classCode || !session || completeRows.length === 0 || hasIncompleteStarted}
+          disabled={saving || loading || !session || placedCount === 0 || datelessCount > 0}
         >
           {saving
             ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Saving…</>
             : <><Save className="h-3.5 w-3.5" /> Save Datesheet</>}
         </Button>
       </div>
-
-      {/* ── Empty state hint ──────────────────────────────────────────────── */}
-      {!hasSelection && (
-        <div className="rounded-xl border border-dashed border-border bg-muted/10 py-10 text-center">
-          <LayoutGrid className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-          <p className="text-sm font-medium text-slate-500">Start by selecting an exam type, a class, and a session above.</p>
-          <p className="text-xs text-slate-400 mt-1">Then fill in the grid — dates, subjects, marks and venues — and click <strong>Save Datesheet</strong>.</p>
-        </div>
-      )}
     </div>
   );
 }

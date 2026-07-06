@@ -25,7 +25,7 @@ type TabKey = typeof TABS[number]["key"];
 const TAB_SUBTITLE: Record<TabKey, string> = {
   dashboard:           "Overview of exam schedules, upcoming sittings and grade scale.",
   schedule:            "Create and manage exam sittings by class, subject and exam type.",
-  "master-datesheet":  "Define the exam grid (dates, subjects, marks, venue) for a class — one class, one datesheet.",
+  "master-datesheet":  "Plan the whole datesheet on one grid — all classes, drag & drop subjects, shuffle combinations.",
   results:             "Select an exam and enter marks for each student in the class.",
   "report-cards":      "View class results, rankings and print individual report cards.",
   "date-sheet":        "Printable date sheet showing all exams grouped by date.",
