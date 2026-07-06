@@ -3610,7 +3610,7 @@ function ScheduleDialog({ referenceIds, applicants = [], onDone }: { referenceId
   const [padding, setPadding]         = useState("4");
 
   const selected = applicants.filter(a => referenceIds.includes(a.referenceId));
-  const unpaidCount = selected.filter(a => (a as any).admissionFeeStatus !== "paid").length;
+  const unpaidCount = selected.filter(a => a.feeStatus !== "paid").length;
 
   const { data: activeCentres } = useListActiveTestCentres();
 
@@ -3619,6 +3619,20 @@ function ScheduleDialog({ referenceIds, applicants = [], onDone }: { referenceId
     const ids = selected.map(a => (a as any).testCentreId).filter(Boolean);
     const unique = [...new Set(ids)];
     setCentreId(unique.length === 1 ? (unique[0] as string) : "");
+    void (async () => {
+      try {
+        const fmtRes = await fetch("/api/admin/settings/gr-format", {
+          headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+        });
+        if (fmtRes.ok) {
+          const fmt = await fmtRes.json();
+          const candidatePrefix = fmt?.candidate?.prefix ?? fmt?.prefix ?? "CCM";
+          setPrefix(`${candidatePrefix}-`);
+        }
+      } catch {
+        // keep default prefix
+      }
+    })();
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const mutation = useBulkScheduleAdminApplicationTest({
@@ -3648,7 +3662,7 @@ function ScheduleDialog({ referenceIds, applicants = [], onDone }: { referenceId
         {unpaidCount > 0 && (
           <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">
             <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-red-500" />
-            <span><strong>{unpaidCount} of {referenceIds.length}</strong> selected applicant{unpaidCount !== 1 ? "s have" : " has"} an unpaid application fee. Verify fee payment before scheduling a test.</span>
+            <span><strong>{unpaidCount} of {referenceIds.length}</strong> selected applicant{unpaidCount !== 1 ? "s have" : " has"} an unverified application fee. Verify fee payment before scheduling a test.</span>
           </div>
         )}
         <div className="grid gap-4 py-4">
@@ -5239,7 +5253,7 @@ function EntryTestTab() {
     { key: "status",      label: "Entry Test Status",  defaultVisible: true,  defaultWidth: 210, render: r => r.status === "enrolled" ? <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2.5 py-0.5 text-[11px] font-semibold text-teal-700"><Lock className="h-3 w-3" />Enrolled</span> : <InlineStatusCell app={r} onMutate={(id, st) => inlineMutation.mutate({ referenceId: id, data: { status: st as never, force: true } as never })} isUpdating={inlineMutation.isPending && inlineMutation.variables?.referenceId === r.referenceId} allowedStatuses={ENTRY_TEST_STATUS_OPTIONS} placeholder="Schedule A Test" currentValue={entryTestStatusValue(r.status ?? "")} />, getText: r => statusLabel(r.status ?? "") },
     { key: "testDate",    label: "Test Date",           defaultVisible: true,  defaultWidth: 130, render: r => <span className="text-[12px] text-slate-600">{(r as any).testDate ? new Date((r as any).testDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : <span className="text-slate-300">—</span>}</span>, getText: r => (r as any).testDate ? new Date((r as any).testDate).toLocaleDateString("en-GB") : "" },
     { key: "examCenter",  label: "Exam Centre",         defaultVisible: true,  defaultWidth: 170, render: r => <div className="flex items-center gap-1.5 text-[12px] text-slate-600">{r.examCenter ? <><MapPin className="h-3 w-3 text-slate-400 shrink-0" />{r.examCenter}</> : <span className="text-slate-300">—</span>}</div>, getText: r => r.examCenter ?? "" },
-    { key: "marks",       label: "Marks /100",          defaultVisible: true,  defaultWidth: 130, render: r => <InlineMarksCell referenceId={r.referenceId} value={r.resultMarks} max={100} savingId={savingMarkId} onSave={saveTestMark} disabled={r.status === "enrolled" || ET_BEFORE_TEST_TAKEN.includes(r.status ?? "")} disabledReason={r.status === "enrolled" ? "Applicant is enrolled — record is locked" : "Mark the test as Taken before entering marks"} />, getText: r => r.resultMarks != null ? String(r.resultMarks) : "" },
+    { key: "marks",       label: "Marks /100",          defaultVisible: true,  defaultWidth: 130, render: r => <InlineMarksCell referenceId={r.referenceId} value={r.resultMarks} max={100} savingId={savingMarkId} onSave={saveTestMark} disabled={(r as any).isEnrolled || r.status === "enrolled" || ET_BEFORE_TEST_TAKEN.includes(r.status ?? "")} disabledReason={(r as any).isEnrolled || r.status === "enrolled" ? "Applicant is enrolled — record is locked" : "Mark the test as Taken before entering marks"} />, getText: r => r.resultMarks != null ? String(r.resultMarks) : "" },
   ];
 
   return (
@@ -5334,7 +5348,7 @@ function EntryTestTab() {
                     const origDate  = (r as any).testDate ? String((r as any).testDate).slice(0, 10) : "";
                     const origMarks = r.resultMarks != null ? String(r.resultMarks) : "";
                     const rowDirty  = Object.keys(etGrid.pending).some(k => k.startsWith(`${r.referenceId}::`));
-                    const isEnrolled = r.status === "enrolled";
+                    const isEnrolled = (r as any).isEnrolled || r.status === "enrolled";
                     const statusDefault = entryTestStatusValue(r.status ?? "") ?? (r.status ?? "");
                     const pendingStatus = etGrid.getCellValue(r.referenceId, "status", statusDefault);
                     const statusDirty = etGrid.isCellDirty(r.referenceId, "status", statusDefault);
@@ -6196,6 +6210,8 @@ function EnrollButton({ app, onDone }: { app: any; onDone: () => void }) {
   if (app.isEnrolled || app.status === "enrolled") return null;
   if (app.status !== "admitted") return null;
 
+  const feeWarning = app.feeStatus !== "paid";
+
   function handleEnroll() {
     if (missingSetup.length) {
       toast({ title: "Academic setup incomplete", description: `Configure ${missingSetup.join(", ")} before enrolling.`, variant: "destructive" });
@@ -6204,10 +6220,8 @@ function EnrollButton({ app, onDone }: { app: any; onDone: () => void }) {
     const gr = applicantId.trim();
     if (!gr) { toast({ title: "Register ID is required", variant: "destructive" }); return; }
     if (!selectedClass) { toast({ title: "Class/Program is required", description: "Select a class to enroll the cadet into.", variant: "destructive" }); return; }
-    mutation.mutate({ referenceId: app.referenceId, data: { applicantId: gr, enrollmentDate: enrollmentDate || undefined, classCode: selectedClass, sectionId: selectedSection || undefined } });
+    mutation.mutate({ referenceId: app.referenceId, data: { applicantId: gr, enrollmentDate: enrollmentDate || undefined, classCode: selectedClass, sectionId: selectedSection || undefined, force: feeWarning } });
   }
-
-  const feeWarning = app.admissionFeeStatus !== "paid";
 
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setGrNumber(""); setEnrollmentDate(new Date().toISOString().slice(0, 10)); setSelectedClass(app.classApplying ?? ""); setSelectedSection((app as any).sectionAllocSectionId ?? ""); } }}>
@@ -7579,7 +7593,7 @@ function InterviewTab() {
     { key: "interviewDate",  label: "Date",                defaultVisible: true,  defaultWidth: 115, render: r => <span className="text-[12px] text-slate-600">{r.interviewDate ? new Date(r.interviewDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : <span className="text-slate-300">—</span>}</span>, getText: r => r.interviewDate ? new Date(r.interviewDate).toLocaleDateString("en-GB") : "" },
     { key: "interviewVenue", label: "Venue",               defaultVisible: true,  defaultWidth: 140, render: r => <div className="flex items-center gap-1.5 text-[12px] text-slate-600">{(r as any).interviewVenue ? <><MapPin className="h-3 w-3 text-slate-400 shrink-0" /><span className="truncate">{(r as any).interviewVenue}</span></> : <span className="text-slate-300">—</span>}</div>, getText: r => (r as any).interviewVenue ?? "" },
     { key: "interviewedBy",  label: "Interviewed By",      defaultVisible: true,  defaultWidth: 155, render: r => <span className="text-[12px] text-slate-600">{(r as any).interviewedBy ?? <span className="text-slate-300">—</span>}</span>, getText: r => (r as any).interviewedBy ?? "" },
-    { key: "marks",          label: "Marks /30",           defaultVisible: true,  defaultWidth: 110, render: r => <InlineMarksCell referenceId={r.referenceId} value={r.interviewMarks} max={30} savingId={savingMarkId} onSave={saveInterviewMark} disabled={r.status === "enrolled"} disabledReason="Applicant is enrolled — record is locked" />, getText: r => r.interviewMarks != null ? String(r.interviewMarks) : "" },
+    { key: "marks",          label: "Marks /30",           defaultVisible: true,  defaultWidth: 110, render: r => <InlineMarksCell referenceId={r.referenceId} value={r.interviewMarks} max={30} savingId={savingMarkId} onSave={saveInterviewMark} disabled={(r as any).isEnrolled || r.status === "enrolled"} disabledReason="Applicant is enrolled — record is locked" />, getText: r => r.interviewMarks != null ? String(r.interviewMarks) : "" },
     { key: "readiness",      label: "Result",              defaultVisible: true,  defaultWidth: 130,
       render: r => {
         if (typeof r.interviewMarks === "number") {
@@ -7683,7 +7697,7 @@ function InterviewTab() {
                   const marksInvalid = r.status !== "enrolled" && marksTrim !== "" && (!Number.isInteger(marksN) || marksN < 0 || marksN > INTERVIEW_MAX);
                   const marksValid   = marksTrim !== "" && Number.isInteger(marksN) && marksN >= 0 && marksN <= INTERVIEW_MAX;
                   const rowDirty  = Object.keys(ivGrid.pending).some(k => k.startsWith(`${r.referenceId}::`));
-                  const isEnrolled = r.status === "enrolled";
+                  const isEnrolled = (r as any).isEnrolled || r.status === "enrolled";
                   const passRow   = !isEnrolled && marksValid ? (marksN >= INTERVIEW_PASS ? "bg-emerald-50/30" : "bg-red-50/30") : "";
                   return (
                     <tr key={r.referenceId} className={cn("hover:bg-slate-50/60 transition-colors", rowDirty && !isEnrolled && "bg-amber-50/30", passRow, isEnrolled && "opacity-60 bg-teal-50/20")}>

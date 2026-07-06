@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import express from "express";
-import { db, applicationsTable, applicationEventsTable, classesTable, paymentTransactionsTable } from "@workspace/db";
-import { eq, asc, gte, sql, desc, or, and } from "drizzle-orm";
+import { db, applicationsTable, applicationEventsTable, classesTable, paymentTransactionsTable, admissionsSettingsTable } from "@workspace/db";
+import { eq, asc, gte, sql, desc, or, and, inArray } from "drizzle-orm";
 import { postApplicationFeeJE } from "../lib/je-factory.js";
 import { SubmitApplicationBody, LookupApplicationBody } from "@workspace/api-zod";
 import { resolveTenant, resolveTenantStrict } from "../lib/tenant.js";
@@ -20,19 +20,11 @@ import {
 } from "../lib/payments/payfast.js";
 import { canonicalizeCnic, canonicalizePhone } from "../lib/format-utils.js";
 import { putObject } from "../lib/storage.js";
+import { loadCandidateReferencePrefix, buildReferenceId } from "../lib/reference-id.js";
+import { loadAdmissionsWindow, admissionsWindowBlockReason } from "../lib/admissions-window.js";
+import { hashPortalPassword } from "../lib/portal-password.js";
 
 const router: IRouter = Router();
-
-const REF_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-function generateReferenceId(): string {
-  const year = new Date().getFullYear();
-  let suffix = "";
-  for (let i = 0; i < 6; i += 1) {
-    suffix += REF_ID_ALPHABET[Math.floor(Math.random() * REF_ID_ALPHABET.length)];
-  }
-  return `CCM-${year}-${suffix}`;
-}
 
 // ── In-memory rate limiter for lookup ────────────────────────────────────────
 // Two layers:
@@ -107,8 +99,40 @@ setInterval(sweep, 5 * 60 * 1000).unref();
 // counter never starts at zero in a fresh install.
 //
 // Cached for 15 seconds to keep this cheap even if hammered by polling clients.
-const SESSION_START = new Date("2026-01-15T00:00:00Z");
-const HISTORICAL_BASELINE = 217;
+// Session start and optional historical baseline are per-tenant settings.
+async function loadStatsConfig(tenantId: string): Promise<{ sessionStart: Date; historicalBaseline: number; sessionLabel: string }> {
+  const keys = [
+    `admissions_session_start:${tenantId}`,
+    `stats_historical_baseline:${tenantId}`,
+    `admissions_session:${tenantId}`,
+    "admissions_session_start",
+    "stats_historical_baseline",
+    "admissions_session",
+  ];
+  const rows = await db
+    .select()
+    .from(admissionsSettingsTable)
+    .where(inArray(admissionsSettingsTable.key, keys));
+  const map: Record<string, string> = {};
+  for (const row of rows) map[row.key] = row.value;
+
+  const sessionStartRaw =
+    map[`admissions_session_start:${tenantId}`] ??
+    map["admissions_session_start"] ??
+    `${new Date().getFullYear()}-01-01`;
+  const sessionStart = new Date(`${sessionStartRaw}T00:00:00Z`);
+  const baselineRaw =
+    map[`stats_historical_baseline:${tenantId}`] ??
+    map["stats_historical_baseline"] ??
+    "0";
+  const historicalBaseline = Math.max(0, Number(baselineRaw) || 0);
+  const sessionLabel =
+    map[`admissions_session:${tenantId}`] ??
+    map["admissions_session"] ??
+    `Admissions ${sessionStart.getUTCFullYear()}`;
+
+  return { sessionStart, historicalBaseline, sessionLabel };
+}
 // Total seats is the sum of `seats` across all active classes in the DB.
 // Falls back to 0 when no classes are configured.
 async function fetchTotalSeats(tenantId: string): Promise<number> {
@@ -157,10 +181,20 @@ router.get("/applications/stats", async (req: Request, res: Response) => {
   const tenantFilter = eq(applicationsTable.tenantId, statsTenant.id);
 
   try {
+    const statsConfig = await loadStatsConfig(statsTenant.id);
+
     const [{ count: totalReal = 0 } = { count: 0 }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(applicationsTable)
-      .where(and(gte(applicationsTable.createdAt, SESSION_START), tenantFilter));
+      .where(and(gte(applicationsTable.createdAt, statsConfig.sessionStart), tenantFilter));
+
+    const [{ count: admittedCount = 0 } = { count: 0 }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(applicationsTable)
+      .where(and(
+        tenantFilter,
+        inArray(applicationsTable.status, ["admitted", "enrolled"]),
+      ));
 
     const [{ count: last24 = 0 } = { count: 0 }] = await db
       .select({ count: sql<number>`count(*)::int` })
@@ -175,11 +209,11 @@ router.get("/applications/stats", async (req: Request, res: Response) => {
       .limit(1);
 
     const totalSeats = await fetchTotalSeats(statsTenant.id);
-    const total = HISTORICAL_BASELINE + Number(totalReal);
-    const spots = Math.max(0, totalSeats - total);
+    const total = statsConfig.historicalBaseline + Number(totalReal);
+    const spots = Math.max(0, totalSeats - Number(admittedCount));
 
     const payload: StatsPayload = {
-      session: `Admissions ${SESSION_START.getUTCFullYear()}`,
+      session: statsConfig.sessionLabel,
       totalThisSession: total,
       totalSeats,
       spotsRemaining: spots,
@@ -193,13 +227,12 @@ router.get("/applications/stats", async (req: Request, res: Response) => {
     return res.json(payload);
   } catch (err) {
     req.log?.error?.({ err }, "Failed to compute application stats");
-    // Soft-fail with the baseline — seats unknown on error, use cached or 0.
     const fallbackSeats = cached?.value.totalSeats ?? 0;
     const fallback: StatsPayload = {
-      session: `Admissions ${SESSION_START.getUTCFullYear()}`,
-      totalThisSession: HISTORICAL_BASELINE,
+      session: cached?.value.session ?? `Admissions ${new Date().getUTCFullYear()}`,
+      totalThisSession: cached?.value.totalThisSession ?? 0,
       totalSeats: fallbackSeats,
-      spotsRemaining: Math.max(0, fallbackSeats - HISTORICAL_BASELINE),
+      spotsRemaining: cached?.value.spotsRemaining ?? fallbackSeats,
       submissions24h: 0,
       lastSubmittedAt: null,
       serverTime: new Date(now).toISOString(),
@@ -255,6 +288,12 @@ router.post("/applications", async (req: Request, res: Response) => {
     });
   }
   const tenantId = tenant.id;
+
+  const admissionsWindow = await loadAdmissionsWindow(tenantId);
+  const windowBlock = admissionsWindowBlockReason(admissionsWindow);
+  if (windowBlock) {
+    return res.status(403).json({ error: windowBlock });
+  }
 
   const canonicalCnic = canonicalizeCnic(input.parentCnic);
   if (!canonicalCnic) {
@@ -346,7 +385,8 @@ router.post("/applications", async (req: Request, res: Response) => {
   }
 
   // Generate a unique reference ID within this tenant, retrying on collision.
-  let referenceId = generateReferenceId();
+  const refPrefix = await loadCandidateReferencePrefix(tenantId);
+  let referenceId = buildReferenceId(refPrefix);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const clash = await db
       .select({ id: applicationsTable.id })
@@ -354,7 +394,7 @@ router.post("/applications", async (req: Request, res: Response) => {
       .where(and(eq(applicationsTable.referenceId, referenceId), eq(applicationsTable.tenantId, tenantId)))
       .limit(1);
     if (clash.length === 0) break;
-    referenceId = generateReferenceId();
+    referenceId = buildReferenceId(refPrefix);
   }
 
   // Handle optional bank receipt upload (base64-encoded file from the frontend)
@@ -373,6 +413,7 @@ router.post("/applications", async (req: Request, res: Response) => {
   }
 
   try {
+    const defaultPortalPassword = await hashPortalPassword("12345");
     const [created] = await db
       .insert(applicationsTable)
       .values({
@@ -409,6 +450,7 @@ router.post("/applications", async (req: Request, res: Response) => {
         parentCnicLast4: cnicLast4,
         status: "received",
         tenantId,
+        portalPassword: defaultPortalPassword,
         // Payment step fields
         paymentMethod: (input as any).paymentMethod ?? null,
         feeBankRef: (input as any).paymentReference ?? null,
@@ -605,6 +647,12 @@ router.post("/applications/payment/initiate", async (req: Request, res: Response
   }
   const tenantId = tenant.id;
 
+  const admissionsWindow = await loadAdmissionsWindow(tenantId);
+  const windowBlock = admissionsWindowBlockReason(admissionsWindow);
+  if (windowBlock) {
+    return res.status(403).json({ error: windowBlock });
+  }
+
   // Load per-tenant gateway credentials (DB-first, env-var fallback)
   const creds = await resolveGatewayCredentials(tenantId);
 
@@ -685,14 +733,16 @@ router.post("/applications/payment/initiate", async (req: Request, res: Response
   }
 
   // Generate unique reference ID
-  let referenceId = generateReferenceId();
+  const refPrefix = await loadCandidateReferencePrefix(tenantId);
+  let referenceId = buildReferenceId(refPrefix);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const clash = await db.select({ id: applicationsTable.id }).from(applicationsTable).where(eq(applicationsTable.referenceId, referenceId)).limit(1);
     if (clash.length === 0) break;
-    referenceId = generateReferenceId();
+    referenceId = buildReferenceId(refPrefix);
   }
 
   try {
+    const defaultPortalPassword = await hashPortalPassword("12345");
     const [created] = await db
       .insert(applicationsTable)
       .values({
@@ -727,6 +777,7 @@ router.post("/applications/payment/initiate", async (req: Request, res: Response
         parentCnicLast4: cnicLast4,
         status: "received",
         tenantId,
+        portalPassword: defaultPortalPassword,
         paymentMethod: gw,
         feeStatus: "gateway_pending",
       })

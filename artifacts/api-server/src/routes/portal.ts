@@ -2,10 +2,14 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import crypto from "node:crypto";
 import { db, applicationsTable, applicationDocumentsTable, applicationEventsTable, PAYMENT_CONFIG_DEFAULTS, tenantsTable, printSettingsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import { issuePortalToken, requirePortal } from "../lib/portal-auth";
 import { putObject } from "../lib/storage";
 import { resolvePaymentConfig } from "../lib/payment-config-cache.js";
+import { resolveGatewayCredentials } from "../lib/gateway-credentials-cache.js";
+import { resolveTenantStrict } from "../lib/tenant.js";
+import { canonicalizePhone } from "../lib/format-utils.js";
+import { hashPortalPassword, verifyPortalPassword } from "../lib/portal-password.js";
 
 const router: IRouter = Router();
 
@@ -38,12 +42,13 @@ function dueDateStr(createdAt: Date, daysAfter: number): string {
 }
 
 async function buildPortalUser(app: typeof applicationsTable.$inferSelect) {
-  const [docs, payConfig, tenantRows, printRows] = await Promise.all([
+  const [docs, payConfig, gatewayCreds, tenantRows, printRows] = await Promise.all([
     db
       .select()
       .from(applicationDocumentsTable)
       .where(eq(applicationDocumentsTable.applicationId, app.id)),
     app.tenantId ? resolvePaymentConfig(app.tenantId) : Promise.resolve({ ...PAYMENT_CONFIG_DEFAULTS }),
+    app.tenantId ? resolveGatewayCredentials(app.tenantId) : Promise.resolve(null),
     app.tenantId
       ? db.select({ name: tenantsTable.name }).from(tenantsTable).where(eq(tenantsTable.id, app.tenantId))
       : Promise.resolve([] as { name: string }[]),
@@ -136,8 +141,10 @@ async function buildPortalUser(app: typeof applicationsTable.$inferSelect) {
     application_fee_enabled: payConfig.applicationFeeEnabled,
     payment_methods: {
       enable_bank_deposit: payConfig.enableBankDeposit,
-      enable_jazzcash:     payConfig.enableJazzcash,
-      enable_payfast:      payConfig.enablePayfast,
+      enable_jazzcash:     payConfig.enableJazzcash && (gatewayCreds?.jazzcash.configured ?? false),
+      enable_payfast:      payConfig.enablePayfast && (gatewayCreds?.payfast.configured ?? false),
+      jazzcash_configured: gatewayCreds?.jazzcash.configured ?? false,
+      payfast_configured:  gatewayCreds?.payfast.configured ?? false,
     },
     docs: docMap,
     joining_date: app.joiningDate ?? null,
@@ -162,21 +169,45 @@ router.post("/portal/login", portalLoginLimiter, async (req: Request, res: Respo
   const u = (username as string).trim().toLowerCase();
 
   try {
+    const tenant = await resolveTenantStrict(req);
+    if (!tenant) {
+      return res.status(400).json({ error: "Tenant could not be determined. Check the portal URL." });
+    }
+
+    const isEmail = u.includes("@");
+    const canonPhone = !isEmail ? canonicalizePhone(u) : null;
+
+    const identityMatch = isEmail
+      ? sql`lower(${applicationsTable.studentEmail}) = ${u}`
+      : canonPhone
+        ? or(
+            eq(applicationsTable.studentMobile, canonPhone),
+            eq(applicationsTable.studentMobile, u),
+          )
+        : eq(applicationsTable.studentMobile, u);
+
     const apps = await db
       .select()
       .from(applicationsTable)
-      .where(
-        eq(
-          u.includes("@") ? applicationsTable.studentEmail : applicationsTable.studentMobile,
-          u,
-        ),
-      )
+      .where(and(eq(applicationsTable.tenantId, tenant.id), identityMatch))
       .limit(1);
 
     const app = apps[0];
 
-    if (!app || app.portalPassword !== (password as string)) {
+    const pwCheck = app
+      ? await verifyPortalPassword(password as string, app.portalPassword)
+      : { valid: false, needsRehash: false };
+
+    if (!app || !pwCheck.valid) {
       return res.status(401).json({ error: "Invalid credentials. Check your email/phone and password." });
+    }
+
+    if (pwCheck.needsRehash) {
+      const hashed = await hashPortalPassword(password as string);
+      await db
+        .update(applicationsTable)
+        .set({ portalPassword: hashed })
+        .where(eq(applicationsTable.id, app.id));
     }
 
     const { token, expiresAt } = issuePortalToken({
@@ -230,12 +261,14 @@ router.patch("/portal/password", requirePortal, async (req: Request, res: Respon
       .limit(1);
     const app = apps[0];
     if (!app) return res.status(404).json({ error: "Application not found" });
-    if (app.portalPassword !== currentPassword) {
+    const pwCheck = await verifyPortalPassword(currentPassword as string, app.portalPassword);
+    if (!pwCheck.valid) {
       return res.status(401).json({ error: "Current password is incorrect" });
     }
+    const hashed = await hashPortalPassword(newPassword as string);
     await db
       .update(applicationsTable)
-      .set({ portalPassword: newPassword as string })
+      .set({ portalPassword: hashed })
       .where(eq(applicationsTable.id, app.id));
     return res.json({ success: true });
   } catch (err) {

@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { useState, useRef } from "react";
 import { formatDate, formatCurrency, todayIso } from "@/lib/locale";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -110,9 +111,9 @@ function PaymentForm({
           <div className="text-xs text-amber-800 leading-snug">
             <span className="font-semibold">No payment accounts configured</span>
             {" — "}
-            <a href="/admin/accounts?tab=setup" target="_blank" className="underline hover:text-amber-900">
+            <Link href="/accounts?tab=setup" className="underline hover:text-amber-900">
               set up a Cash or Bank account first
-            </a>
+            </Link>
           </div>
         </div>
       )}

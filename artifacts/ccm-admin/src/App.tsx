@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -107,10 +107,8 @@ import Login from "@/pages/Login";
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Applications = lazy(() => import("@/pages/Applications"));
 const ApplicationDetail = lazy(() => import("@/pages/ApplicationDetail"));
-const TestCentres = lazy(() => import("@/pages/TestCentres"));
 const Academic = lazy(() => import("@/pages/Academic"));
 const Reports = lazy(() => import("@/pages/Reports"));
-const MeritConfig = lazy(() => import("@/pages/MeritConfig"));
 const Students = lazy(() => import("@/pages/Students"));
 const StudentProfile = lazy(() => import("@/pages/StudentProfile"));
 const Guardians = lazy(() => import("@/pages/Guardians"));
@@ -312,6 +310,14 @@ function gated(moduleKey: string, moduleName: string, Page: React.ComponentType)
   };
 }
 
+function RedirectTo({ to }: { to: string }) {
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    navigate(to, { replace: true });
+  }, [to, navigate]);
+  return <PageLoading />;
+}
+
 function Router() {
   return (
     <Switch>
@@ -322,9 +328,9 @@ function Router() {
       <Route path="/admissions"                component={gated("admissions", "Admissions", Applications)} />
       <Route path="/applications"              component={gated("admissions", "Admissions", Applications)} />
       <Route path="/applications/:referenceId" component={gated("admissions", "Admissions", ApplicationDetail)} />
-      <Route path="/test-centres"              component={gated("admissions", "Admissions", TestCentres)} />
+      <Route path="/test-centres"              component={() => <RedirectTo to="/applications?tab=setup" />} />
       <Route path="/academic"                  component={gated("academics", "Academics", Academic)} />
-      <Route path="/merit-config"              component={gated("admissions", "Admissions", MeritConfig)} />
+      <Route path="/merit-config"              component={() => <RedirectTo to="/applications?tab=setup" />} />
       <Route path="/reports"                   component={wrap(Reports)} />
 
       {/* Stub modules */}

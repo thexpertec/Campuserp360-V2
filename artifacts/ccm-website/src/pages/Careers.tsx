@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { Helmet } from "react-helmet-async";
 import { motion } from "framer-motion";
 import { useMutation } from "@tanstack/react-query";
@@ -405,7 +406,7 @@ export default function Careers() {
               size="lg"
               className="bg-slate-800 hover:bg-slate-900 text-white px-8"
             >
-              <a href="/">Back to Home</a>
+              <Link href="/">Back to Home</Link>
             </Button>
           </motion.div>
         </section>

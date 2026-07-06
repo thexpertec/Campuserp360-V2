@@ -124,6 +124,28 @@ export async function migrateUniqueConstraints(): Promise<void> {
       logger.warn({ err }, "migrateUniqueConstraints: school_calendar_weekends index migration failed");
     }
 
+    // students.application_id must be unique when set — prevents double-enrollment races
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.tables WHERE table_name = 'students'
+          ) THEN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE tablename = 'students' AND indexname = 'students_application_id_uniq'
+            ) THEN
+              CREATE UNIQUE INDEX students_application_id_uniq
+                ON students (application_id)
+                WHERE application_id IS NOT NULL;
+            END IF;
+          END IF;
+        END $$;
+      `);
+    } catch (err) {
+      logger.warn({ err }, "migrateUniqueConstraints: students application_id unique index failed");
+    }
+
   } finally {
     client.release();
   }

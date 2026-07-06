@@ -358,7 +358,7 @@ function PendingActionsPanel({ summary, isLoading }: {
       color: "#8b5cf6",
       bg: "bg-violet-50",
       border: "border-violet-100",
-      href: "/examinations?tab=results",
+      href: "/applications?tab=entry-test",
       cta: "Enter Results",
     },
     {
@@ -493,7 +493,7 @@ function AlertsPanel({ summary }: { summary?: { pendingVerification: number; tes
   if ((summary?.testScheduled ?? 0) > 0)
     alerts.push({ type: "info", msg: `${summary!.testScheduled} admit card${summary!.testScheduled !== 1 ? "s" : ""} ready to issue`, href: "/applications?tab=entry-test" });
   if ((summary?.testTaken ?? 0) > 0)
-    alerts.push({ type: "info", msg: `${summary!.testTaken} test result${summary!.testTaken !== 1 ? "s" : ""} not yet entered`, href: "/examinations?tab=results" });
+    alerts.push({ type: "info", msg: `${summary!.testTaken} test result${summary!.testTaken !== 1 ? "s" : ""} not yet entered`, href: "/applications?tab=entry-test" });
 
   if (!alerts.length)
     return <p className="text-center py-6 text-sm text-slate-400">No alerts — all clear ✓</p>;
@@ -1179,7 +1179,7 @@ function FinanceView() {
       sub:   "Last 7 days",
       icon: CheckCircle, grad: "from-blue-500 to-indigo-600", href: "/finance?tab=collection",
     },
-    { title: "Scholarships Issued", value: "—", sub: "Active concessions", icon: Trophy, grad: "from-amber-500 to-orange-600", href: "/fee-master" },
+    { title: "Scholarships Issued", value: "—", sub: "Active concessions", icon: Trophy, grad: "from-amber-500 to-orange-600", href: "/fee-concessions" },
   ];
 
   return (

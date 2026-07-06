@@ -1,6 +1,7 @@
 import { db, applicationsTable, applicationEventsTable, tenantsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { hashPasswordSync } from "./admin-auth.js";
 
 const DEMO_REF_ID = "CCM-2026-DEMO01";
 const DEFAULT_SLUG = (process.env["DEFAULT_TENANT_SLUG"] ?? "ccm").toLowerCase();
@@ -26,9 +27,12 @@ async function seedPortalAccount(account: AppInsert, events: Omit<EventInsert, "
 
   if (existing.length > 0) return;
 
+  const rawPw = account.portalPassword ?? "12345";
+  const portalPassword = rawPw.startsWith("$2") ? rawPw : hashPasswordSync(rawPw);
+
   const [inserted] = await db
     .insert(applicationsTable)
-    .values(account)
+    .values({ ...account, portalPassword })
     .returning({ id: applicationsTable.id });
 
   if (inserted && events.length > 0) {
