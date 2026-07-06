@@ -72,7 +72,6 @@ const applicationSchema = z.object({
   // Configurable — optional in schema, required enforced dynamically in handleNext
   bloodGroup: z.string().optional().default(""),
   religion: z.string().optional().default(""),
-  nationality: z.string().optional().default(""),
   domicile: z.string().optional().default(""),
   // Student contact
   studentMobile: optionalPhoneRule,
@@ -135,7 +134,7 @@ const CONFIGURABLE_FIELDS = new Set([
   "gender", "bloodGroup", "religion", "photo",
   "studentMobile", "studentEmail", "state", "city", "examCenter",
   "relation", "occupation", "studentBForm",
-  "nationality", "domicile", "motherName", "guardianEmail", "alternatePhone",
+  "domicile", "motherName", "guardianEmail", "alternatePhone",
 ]);
 
 type FieldCfg = { enabled: boolean; required: boolean };
@@ -143,7 +142,7 @@ const DEFAULT_FIELD_CFG: FieldCfg = { enabled: true, required: true };
 
 const stepFields: Record<number, (keyof ApplicationFormValues)[]> = {
   0: ["classApplying", "previousMarks"],
-  1: ["fullName", "dateOfBirth", "bloodGroup", "nationality", "domicile"],
+  1: ["fullName", "dateOfBirth", "bloodGroup", "domicile"],
   2: ["studentMobile", "studentEmail", "presentAddress", "state", "city", "examCenter"],
   3: ["guardianName", "relation", "fatherName", "guardianMobile", "parentCnic", "studentBForm", "motherName", "guardianEmail", "alternatePhone"],
 };
@@ -236,7 +235,6 @@ export default function Admissions() {
       dateOfBirth: "",
       bloodGroup: "",
       religion: "",
-      nationality: "",
       domicile: "",
       studentMobile: "",
       studentEmail: "",
@@ -391,7 +389,6 @@ export default function Admissions() {
     examCenter:     "Please select an exam center",
     relation:       "Please select relation",
     studentBForm:   "Enter a valid 13-digit B-Form / CNIC number",
-    nationality:    "Please enter nationality",
     domicile:       "Please enter domicile province",
     motherName:     "Please enter mother's name",
     guardianEmail:  "Please enter a valid email address",
@@ -1006,22 +1003,6 @@ export default function Admissions() {
                             )} />
                             )}
 
-                            {fc("nationality").enabled && (
-                            <FormField control={form.control} name="nationality" render={({ field, fieldState }) => (
-                              <FormItem>
-                                <FormLabel>Nationality {fc("nationality").required ? "*" : <span className="text-foreground/50 font-normal">(optional)</span>}</FormLabel>
-                                <FormControl>
-                                  <ValidatedInput
-                                    placeholder="e.g. Pakistani"
-                                    data-testid="input-nationality"
-                                    isValid={!fieldState.invalid && field.value.length >= 2}
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <GatedFormMessage />
-                              </FormItem>
-                            )} />
-                            )}
                             {fc("domicile").enabled && (
                             <FormField control={form.control} name="domicile" render={({ field, fieldState }) => (
                               <FormItem>
